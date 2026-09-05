@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 
-enum SoundEffect: CaseIterable { case shoot, sunshine, explosion, win, loss, plant, error, fuse, wave, giantReady, giantStrike, iceCharge, iceLaunch, iceHit, doctorArrival, pepperFuse, pepperBlast, pepperHit, cornLoad, cornLaunch, cornImpact, thunderArrival, thunderCharge, thunderStrike, charmCharge, charmCast, charmEnd, allyStrike, danceBeat }
+enum SoundEffect: CaseIterable { case shoot, sunshine, explosion, win, loss, plant, error, fuse, wave, giantReady, giantStrike, iceCharge, iceLaunch, iceHit, icePeaShoot, icePeaHit, doctorArrival, flameArrival, flameReady, flameStrike, pepperFuse, pepperBlast, pepperHit, cornLoad, cornLaunch, cornImpact, thunderArrival, thunderCharge, thunderStrike, charmCharge, charmCast, charmEnd, allyStrike, danceBeat }
 
 @MainActor
 final class AudioSynth {
@@ -23,7 +23,12 @@ final class AudioSynth {
         sounds[.iceCharge] = makeSound(notes: [(740, 0.10), (880, 0.10), (1040, 0.15)], volume: 0.15)
         sounds[.iceLaunch] = makeSound(notes: [(1200, 0.07), (760, 0.13)], volume: 0.17)
         sounds[.iceHit] = makeSound(notes: [(1500, 0.04), (1100, 0.05), (700, 0.09)], volume: 0.18)
+        sounds[.icePeaShoot] = makeSound(notes: [(860, 0.05), (1200, 0.08)], volume: 0.16)
+        sounds[.icePeaHit] = makeSound(notes: [(1500, 0.04), (980, 0.08), (640, 0.12)], volume: 0.18)
         sounds[.doctorArrival] = makeSound(notes: [(196, 0.12), (247, 0.12), (370, 0.24)], volume: 0.2)
+        sounds[.flameArrival] = makeSound(notes: [(120, 0.14), (170, 0.14), (245, 0.24)], volume: 0.25)
+        sounds[.flameReady] = makeSound(notes: [(150, 0.13), (190, 0.16), (260, 0.22)], volume: 0.22)
+        sounds[.flameStrike] = makeNoise(duration: 0.3, volume: 0.36)
         sounds[.pepperFuse] = makeSound(notes: [(180, 0.08), (220, 0.08), (280, 0.10)], volume: 0.15)
         sounds[.pepperBlast] = makeNoise(duration: 0.32, volume: 0.34)
         sounds[.pepperHit] = makeSound(notes: [(420, 0.06), (620, 0.08)], volume: 0.18)

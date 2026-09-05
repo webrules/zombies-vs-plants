@@ -80,8 +80,9 @@ enum LawnRenderer {
             var trail = Path()
             trail.move(to: CGPoint(x: center.x - radius * 4.2, y: center.y))
             trail.addLine(to: CGPoint(x: center.x - radius, y: center.y))
-            context.stroke(trail, with: .linearGradient(Gradient(colors: [.clear, .green.opacity(0.55)]), startPoint: CGPoint(x: center.x-radius*4, y: center.y), endPoint: center), style: StrokeStyle(lineWidth: radius * 0.8, lineCap: .round))
-            context.fill(Path(ellipseIn: CGRect(x: center.x-radius, y: center.y-radius, width: radius*2, height: radius*2)), with: .color(Color(red: 0.20, green: 0.65, blue: 0.12)))
+            let shotColor: Color = pea.icy ? .cyan : .green
+            context.stroke(trail, with: .linearGradient(Gradient(colors: [.clear, shotColor.opacity(0.72)]), startPoint: CGPoint(x: center.x-radius*4, y: center.y), endPoint: center), style: StrokeStyle(lineWidth: radius * 0.8, lineCap: .round))
+            context.fill(Path(ellipseIn: CGRect(x: center.x-radius, y: center.y-radius, width: radius*2, height: radius*2)), with: .radialGradient(Gradient(colors: pea.icy ? [.white, .cyan, .blue] : [Color(red: 0.35, green: 0.85, blue: 0.20)]), center: center, startRadius: 0, endRadius: radius))
             context.fill(Path(ellipseIn: CGRect(x: center.x-radius*0.45, y: center.y-radius*0.55, width: radius*0.65, height: radius*0.55)), with: .color(.white.opacity(0.65)))
             context.stroke(Path(ellipseIn: CGRect(x: center.x-radius, y: center.y-radius, width: radius*2, height: radius*2)), with: .color(.black.opacity(0.25)), lineWidth: 1.5)
         }
@@ -181,7 +182,7 @@ enum LawnRenderer {
                                  y: (CGFloat(particle.cell.row) + 0.5 + particle.dy) * rh)
             let radius = min(cw, rh) * CGFloat(0.07 * (1-t) + 0.018)
             let color: Color = switch particle.colorIndex {
-            case 0: .yellow; case 1: .orange; case 2: .red; case 4: .cyan; case 5: .orange; case 6: .black.opacity(0.55); case 8: .cyan; case 9: .purple; default: .brown
+            case 0: .yellow; case 1: .orange; case 2: .red; case 4: .cyan; case 5: .orange; case 6: .black.opacity(0.55); case 7: .white; case 8: .cyan; case 9: .purple; default: .brown
             }
             context.fill(Path(ellipseIn: CGRect(x: center.x-radius, y: center.y-radius, width: radius*2, height: radius*2)), with: .color(color.opacity(1-t)))
         }
@@ -192,7 +193,7 @@ enum LawnRenderer {
             let y = size.height * 0.5 + CGFloat(t-0.5) * 18
             let banner = CGRect(x: size.width*0.27, y: y-42, width: size.width*0.46, height: 84)
             context.fill(Path(roundedRect: banner, cornerRadius: 24), with: .color(.black.opacity(alpha*0.68)))
-            let label = game.wave == 3 ? "FINAL WAVE • THREE BOSSES APPROACH" : "GARDEN WAVE \(game.wave)"
+            let label = game.wave == 3 ? "FINAL WAVE • FOUR BOSSES APPROACH" : "GARDEN WAVE \(game.wave)"
             context.draw(Text(label).font(.system(size: game.wave == 3 ? 24 : 34, weight: .black, design: .rounded)).foregroundStyle(.yellow.opacity(alpha)), at: CGPoint(x: banner.midX, y: banner.midY))
         }
 
@@ -263,6 +264,8 @@ enum LawnRenderer {
             drawCornCannon(context: &context, center: center, scale: s, time: time)
         case .charmMushroom:
             drawCharmMushroom(context: &context, center: center, scale: s, progress: max(0, min(1, 1 - plant.actionTimer)), time: time)
+        case .icePeaShooter:
+            drawIcePeaShooter(context: &context, center: center, scale: s, time: time)
         }
 
         if plant.freezeTimer > 0 {
@@ -275,8 +278,12 @@ enum LawnRenderer {
                 context.fill(crystal,with:.color(.cyan.opacity(0.7)))
             }
         }
+        if plant.burnTimer > 0 {
+            let flame = min(1, plant.burnTimer / 0.5)
+            context.draw(Text("🔥").font(.system(size: 14*s)).foregroundStyle(.orange.opacity(flame)), at: CGPoint(x: center.x+25*s, y: center.y-35*s))
+        }
 
-        let maxHP: Double = plant.kind == .wallPlant ? 520 : plant.kind == .peaShooter ? 125 : plant.kind == .redHotPepper ? 85 : plant.kind == .cornCannon ? 180 : plant.kind == .charmMushroom ? 90 : 100
+        let maxHP: Double = plant.kind == .wallPlant ? 520 : plant.kind == .peaShooter || plant.kind == .icePeaShooter ? 125 : plant.kind == .redHotPepper ? 85 : plant.kind == .cornCannon ? 180 : plant.kind == .charmMushroom ? 90 : 100
         let ratio = max(0, min(1, plant.hp / maxHP))
         let bar = CGRect(x: center.x-25*s, y: center.y+38*s, width: 50*s, height: 5*s)
         context.fill(Path(roundedRect: bar, cornerRadius: 2*s), with: .color(.black.opacity(0.25)))
@@ -366,13 +373,37 @@ enum LawnRenderer {
         }
     }
 
+    private static func drawIcePeaShooter(context: inout GraphicsContext, center: CGPoint, scale s: CGFloat, time: Double) {
+        let head = CGRect(x: center.x-22*s, y: center.y-29*s, width: 43*s, height: 39*s)
+        context.fill(Path(ellipseIn: head), with: .linearGradient(Gradient(colors: [.cyan, .blue.opacity(0.72)]), startPoint: head.origin, endPoint: CGPoint(x: head.maxX, y: head.maxY)))
+        let snout = CGRect(x: center.x+12*s, y: center.y-23*s, width: 31*s, height: 24*s)
+        context.fill(Path(roundedRect: snout, cornerRadius: 11*s), with: .color(.blue.opacity(0.82)))
+        context.fill(Path(ellipseIn: CGRect(x: center.x+31*s, y: center.y-18*s, width: 8*s, height: 13*s)), with: .color(.white.opacity(0.85)))
+        context.fill(Path(ellipseIn: CGRect(x: center.x-5*s, y: center.y-19*s, width: 6*s, height: 8*s)), with: .color(.black))
+        for i in 0..<4 {
+            let angle = time * 1.8 + Double(i) * Double.pi / 2
+            let p = CGPoint(x: center.x + CGFloat(cos(angle))*24*s, y: center.y-8*s + CGFloat(sin(angle))*25*s)
+            context.fill(Path(ellipseIn: CGRect(x:p.x-3*s,y:p.y-3*s,width:6*s,height:6*s)), with: .color(.white.opacity(0.8)))
+        }
+        context.draw(Text("ICE").font(.system(size: 7*s, weight: .black, design: .rounded)).foregroundStyle(.white), at: CGPoint(x: center.x, y: center.y+15*s))
+    }
+
     private static func drawZombie(context: inout GraphicsContext, zombie: Zombie, center: CGPoint, scale baseScale: CGFloat, gait: Double) {
+        if zombie.slowTimer > 0 {
+            let pulse = 34*baseScale + CGFloat(sin(zombie.age*8))*3*baseScale
+            context.stroke(Path(ellipseIn:CGRect(x:center.x-pulse,y:center.y-pulse*0.7,width:pulse*2,height:pulse*1.4)), with:.color(.cyan.opacity(0.72)), style:StrokeStyle(lineWidth:3*baseScale,dash:[6,4]))
+            context.draw(Text("SLOWED").font(.system(size: 7*baseScale, weight: .black, design: .rounded)).foregroundStyle(.cyan), at: CGPoint(x:center.x,y:center.y-70*baseScale))
+        }
         if zombie.kind == .hammerGiant {
             drawHammerGiant(context: &context, zombie: zombie, center: center, scale: baseScale, gait: gait)
             return
         }
         if zombie.kind == .iceDoctor {
             drawIceDoctor(context: &context, zombie: zombie, center: center, scale: baseScale, gait: gait)
+            return
+        }
+        if zombie.kind == .flameGiant {
+            drawFlameGiant(context: &context, zombie: zombie, center: center, scale: baseScale, gait: gait)
             return
         }
         if zombie.kind == .thunderShogun {
@@ -538,6 +569,38 @@ enum LawnRenderer {
         context.fill(Path(roundedRect:bar,cornerRadius:4*s),with:.color(.black.opacity(0.55)))
         context.fill(Path(roundedRect:CGRect(x:bar.minX,y:bar.minY,width:bar.width*ratio,height:bar.height),cornerRadius:4*s),with:.linearGradient(Gradient(colors:[.cyan,.blue]),startPoint:CGPoint(x:bar.minX,y:bar.midY),endPoint:CGPoint(x:bar.maxX,y:bar.midY)))
         context.draw(Text("ARMORED ICE DOCTOR • 5 BOMBS").font(.system(size:6.5*s,weight:.black,design:.rounded)).foregroundStyle(.white),at:CGPoint(x:bar.midX,y:bar.minY-7*s))
+    }
+
+    private static func drawFlameGiant(context: inout GraphicsContext, zombie: Zombie, center: CGPoint, scale baseScale: CGFloat, gait: Double) {
+        let spawn = min(1, max(0.08, zombie.age / 0.9))
+        let s = baseScale * 1.28 * CGFloat(spawn)
+        let body = CGRect(x:center.x-31*s, y:center.y-18*s, width:62*s, height:70*s)
+        context.fill(Path(roundedRect: body, cornerRadius: 15*s), with: .linearGradient(Gradient(colors:[Color(red:0.42,green:0.12,blue:0.08), .orange.opacity(0.8)]), startPoint: body.origin, endPoint: CGPoint(x:body.maxX,y:body.maxY)))
+        context.stroke(Path(roundedRect: body, cornerRadius: 15*s), with: .color(.red.opacity(0.8)), lineWidth: 3*s)
+        for i in 0..<5 {
+            let a = zombie.age * 2 + Double(i) * Double.pi * 2 / 5
+            let p = CGPoint(x:center.x + CGFloat(cos(a))*34*s, y:center.y+CGFloat(sin(a))*34*s)
+            context.fill(Path(ellipseIn:CGRect(x:p.x-8*s,y:p.y-13*s,width:16*s,height:26*s)), with:.linearGradient(Gradient(colors:[.yellow,.red.opacity(0.2)]),startPoint:p,endPoint:CGPoint(x:p.x,y:p.y+20*s)))
+        }
+        let head = CGRect(x:center.x-28*s,y:center.y-66*s,width:56*s,height:50*s)
+        context.fill(Path(roundedRect:head,cornerRadius:16*s),with:.color(Color(red:0.54,green:0.22,blue:0.12)))
+        context.stroke(Path(roundedRect:head,cornerRadius:16*s),with:.color(.orange),lineWidth:3*s)
+        var crown=Path(); crown.move(to:CGPoint(x:center.x-27*s,y:center.y-61*s)); crown.addLine(to:CGPoint(x:center.x-17*s,y:center.y-87*s)); crown.addLine(to:CGPoint(x:center.x-4*s,y:center.y-68*s)); crown.addLine(to:CGPoint(x:center.x+10*s,y:center.y-91*s)); crown.addLine(to:CGPoint(x:center.x+28*s,y:center.y-61*s)); crown.closeSubpath()
+        context.fill(crown,with:.color(.orange))
+        for dx in [-12.0, 10.0] { context.fill(Path(ellipseIn:CGRect(x:center.x+CGFloat(dx)*s,y:center.y-45*s,width:8*s,height:10*s)),with:.color(.yellow)) }
+        var mouth=Path(); mouth.move(to:CGPoint(x:center.x-12*s,y:center.y-28*s)); mouth.addLine(to:CGPoint(x:center.x+14*s,y:center.y-25*s)); context.stroke(mouth,with:.color(.black),lineWidth:3*s)
+        for dx in [-20.0, 12.0] { let lift=CGFloat(dx<0 ? gait : -gait)*2*s; context.fill(Path(roundedRect:CGRect(x:center.x+CGFloat(dx)*s,y:center.y+46*s+lift,width:14*s,height:28*s),cornerRadius:4*s),with:.color(Color(red:0.24,green:0.12,blue:0.14))) }
+        let charge = zombie.strikeCharge > 0 ? 1 - zombie.strikeCharge / 1.1 : 0
+        if zombie.strikeCharge > 0 {
+            let glow = 44*s*CGFloat(0.7+charge)
+            context.fill(Path(ellipseIn:CGRect(x:center.x-glow,y:center.y-25*s-glow,width:glow*2,height:glow*2)),with:.radialGradient(Gradient(colors:[.orange.opacity(0.4),.red.opacity(0.1),.clear]),center:center,startRadius:0,endRadius:glow))
+            context.draw(Text("FLAME STRIKE").font(.system(size:8*s,weight:.black,design:.rounded)).foregroundStyle(.yellow),at:CGPoint(x:center.x,y:center.y-102*s))
+        }
+        let ratio=max(0,zombie.hp/zombie.kind.maxHP)
+        let bar=CGRect(x:center.x-48*s,y:center.y-91*s,width:96*s,height:8*s)
+        context.fill(Path(roundedRect:bar,cornerRadius:4*s),with:.color(.black.opacity(0.5)))
+        context.fill(Path(roundedRect:CGRect(x:bar.minX,y:bar.minY,width:bar.width*ratio,height:bar.height),cornerRadius:4*s),with:.linearGradient(Gradient(colors:[.red,.orange,.yellow]),startPoint:CGPoint(x:bar.minX,y:bar.midY),endPoint:CGPoint(x:bar.maxX,y:bar.midY)))
+        context.draw(Text("FLAME GIANT").font(.system(size:8*s,weight:.black,design:.rounded)).foregroundStyle(.white),at:CGPoint(x:bar.midX,y:bar.minY-8*s))
     }
 
     private static func drawThunderShogun(context: inout GraphicsContext, zombie: Zombie, center: CGPoint, scale baseScale: CGFloat, gait: Double) {

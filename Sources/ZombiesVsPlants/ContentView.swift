@@ -20,6 +20,13 @@ struct ContentView: View {
                                 .padding(.horizontal, 12).padding(.vertical, 5)
                                 .background(.white.opacity(0.72), in: Capsule())
                         }
+                        if game.selectedPlant == .icePeaShooter {
+                            Text("ICE PEA: blue shots damage and slow every enemy, including bosses.")
+                                .font(.caption.weight(.black))
+                                .foregroundStyle(.blue)
+                                .padding(.horizontal, 12).padding(.vertical, 5)
+                                .background(.white.opacity(0.72), in: Capsule())
+                        }
                         GameBoard(game: game)
                             .aspectRatio(9.0 / 5.0, contentMode: .fit)
                             .background(.black.opacity(0.1))
@@ -81,15 +88,15 @@ struct ContentView: View {
                 Button { game.selectPlant(kind) } label: {
                     PlantCard(kind: kind, selected: game.selectedPlant == kind,
                               affordable: game.sunshine >= kind.cost,
-                              cooldown: kind == .cherryBomb ? game.cherryCooldown : kind == .redHotPepper ? game.pepperCooldown : kind == .cornCannon ? game.cornCooldown : kind == .charmMushroom ? game.charmCooldown : 0,
-                              cooldownDuration: kind == .redHotPepper ? GameModel.pepperCooldownDuration : kind == .cornCannon ? GameModel.cornCannonCooldownDuration : kind == .charmMushroom ? GameModel.charmMushroomCooldownDuration : GameModel.cherryCooldownDuration,
+                              cooldown: kind == .cherryBomb ? game.cherryCooldown : kind == .redHotPepper ? game.pepperCooldown : kind == .cornCannon ? game.cornCooldown : kind == .charmMushroom ? game.charmCooldown : kind == .icePeaShooter ? game.icePeaCooldown : 0,
+                              cooldownDuration: kind == .redHotPepper ? GameModel.pepperCooldownDuration : kind == .cornCannon ? GameModel.cornCannonCooldownDuration : kind == .charmMushroom ? GameModel.charmMushroomCooldownDuration : kind == .icePeaShooter ? GameModel.icePeaCooldownDuration : GameModel.cherryCooldownDuration,
                               animationTime: game.elapsed)
                 }
                 .buttonStyle(.plain)
                 .disabled(game.phase != .playing)
             }
             Spacer(minLength: 0)
-            Text("GARDEN NOTE\nStart with 1,000 sunshine.\nCharm samurai, never bosses.")
+            Text("GARDEN NOTE\nStart with 1,000 sunshine.\nCharm all but Thunder.")
                 .font(.caption.bold())
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.white.opacity(0.92))
@@ -125,6 +132,13 @@ struct ContentView: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 8).padding(.vertical, 3)
                     .background(.blue, in: Capsule())
+            }
+            if game.zombies.contains(where: { $0.kind == .flameGiant }) {
+                Text("FLAME GIANT")
+                    .font(.caption.weight(.black))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(.orange, in: Capsule())
             }
             if game.zombies.contains(where: { $0.kind == .thunderShogun }) {
                 Text("FINAL BOSS")
@@ -169,7 +183,7 @@ struct ContentView: View {
                         .foregroundStyle(game.phase == .won ? .yellow : game.phase == .lost ? .green : .white)
                         .shadow(color: game.phase == .lost ? .red.opacity(0.5) : .black, radius: game.phase == .lost ? 9 : 2, y: 3)
                         .scaleEffect(pulse)
-                    Text(game.phase == .ready ? "Defend the moonbridge garden through three waves. The final wave brings three armored bosses." : game.phase == .won ? "The garden is peaceful again. All three armored bosses have fallen." : "A samurai invader crossed the moonbridge gate.")
+                    Text(game.phase == .ready ? "Defend the moonbridge garden through three waves. The final wave brings four mighty bosses." : game.phase == .won ? "The garden is peaceful again. All four mighty bosses have fallen." : "A samurai invader crossed the moonbridge gate.")
                         .font(.title3.weight(.semibold))
                         .foregroundStyle(.white)
                         .multilineTextAlignment(.center)
@@ -232,6 +246,7 @@ private struct PlantCard: View {
         case .redHotPepper: Color(red: 0.84, green: 0.12, blue: 0.08)
         case .cornCannon: Color(red: 0.83, green: 0.60, blue: 0.08)
         case .charmMushroom: Color(red: 0.55, green: 0.20, blue: 0.68)
+        case .icePeaShooter: Color(red: 0.18, green: 0.62, blue: 0.92)
         }
     }
 }

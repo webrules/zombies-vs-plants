@@ -29,11 +29,12 @@ final class GameModelTests: XCTestCase {
 
     func testWavesEscalateAndContainBothEnemyTypes() {
         let game = GameModel()
-        XCTAssertEqual(game.schedule.count, 38)
+        XCTAssertEqual(game.schedule.count, 39)
         XCTAssertTrue(game.schedule.contains { $0.kind == .regular })
         XCTAssertTrue(game.schedule.contains { $0.kind == .bucketHead })
         XCTAssertTrue(game.schedule.contains { $0.kind == .hammerGiant })
         XCTAssertTrue(game.schedule.contains { $0.kind == .iceDoctor })
+        XCTAssertTrue(game.schedule.contains { $0.kind == .flameGiant })
         XCTAssertTrue(game.schedule.contains { $0.kind == .thunderShogun })
         XCTAssertTrue(game.schedule.contains { $0.kind == .dancerSamurai })
         let dancers = game.schedule.filter { $0.kind == .dancerSamurai }
@@ -127,6 +128,70 @@ final class GameModelTests: XCTestCase {
         XCTAssertEqual(game.plants[cell]?.hp ?? -1, 478, accuracy: 0.01)
         XCTAssertGreaterThan(game.plants[cell]?.freezeTimer ?? 0, 3)
         XCTAssertTrue(game.iceOrbs.isEmpty)
+    }
+
+    func testIcePeaPlacementCostsSunshineAndFiresAVisibleProjectile() {
+        let game = GameModel()
+        game.soundEnabled = false
+        game.start()
+        game.togglePause()
+        game.addZombieForTesting(.regular, row: 2, x: 4)
+        game.selectPlant(.icePeaShooter)
+        let cell = GridCell(row: 2, column: 1)
+        game.plant(at: cell)
+        XCTAssertEqual(game.sunshine, 850)
+        XCTAssertEqual(game.plants[cell]?.kind, .icePeaShooter)
+        game.advanceForTesting(0.5)
+        XCTAssertTrue(game.peas.contains { $0.icy }, "Ice Pea should create a distinct projectile")
+        game.advanceForTesting(0.7)
+        XCTAssertLessThan(game.zombies.first?.hp ?? 100, 100)
+        XCTAssertGreaterThan(game.zombies.first?.slowTimer ?? 0, 3)
+        XCTAssertGreaterThan(game.icePeaCooldown, 0)
+        XCTAssertLessThan(game.icePeaCooldown, GameModel.icePeaCooldownDuration)
+    }
+
+    func testIcePeaSlowAppliesAndRefreshesOnAllEnemyKindsIncludingBosses() {
+        let kinds: [ZombieKind] = [.regular, .bucketHead, .dancerSamurai, .hammerGiant, .iceDoctor, .flameGiant, .thunderShogun]
+        for kind in kinds {
+            let game = GameModel()
+            game.soundEnabled = false
+            game.start()
+            game.togglePause()
+            game.addZombieForTesting(kind, row: 0, x: 3)
+            game.addIcePeaForTesting(row: 0, x: 2.9)
+            game.advanceForTesting(0.1)
+            XCTAssertGreaterThan(game.zombies.first?.slowTimer ?? 0, 3, "Ice Pea should slow \(kind.title)")
+            game.addIcePeaForTesting(row: 0, x: 2.9)
+            game.advanceForTesting(0.1)
+            XCTAssertGreaterThan(game.zombies.first?.slowTimer ?? 0, 3.2, "A second hit should refresh \(kind.title)'s slow")
+        }
+    }
+
+    func testFlameGiantTelegraphsBurnsAndIsCharmable() {
+        XCTAssertEqual(ZombieKind.flameGiant.title, "Flame Giant")
+        XCTAssertLessThan(ZombieKind.flameGiant.speed, ZombieKind.bucketHead.speed)
+        let game = GameModel()
+        game.soundEnabled = false
+        game.start()
+        game.togglePause()
+        let cell = GridCell(row: 2, column: 1)
+        game.selectPlant(.wallPlant)
+        game.plant(at: cell)
+        game.addZombieForTesting(.flameGiant, row: 2, x: 1.7)
+        game.advanceForTesting(0.5)
+        XCTAssertEqual(game.plants[cell]?.hp ?? -1, 520, accuracy: 0.01)
+        XCTAssertGreaterThan(game.zombies.first?.strikeCharge ?? 0, 0)
+        game.advanceForTesting(0.7)
+        XCTAssertLessThan(game.plants[cell]?.hp ?? 520, 435)
+        XCTAssertGreaterThan(game.plants[cell]?.burnTimer ?? 0, 2)
+
+        let charmGame = GameModel()
+        charmGame.soundEnabled = false
+        charmGame.start()
+        charmGame.togglePause()
+        charmGame.addZombieForTesting(.flameGiant, row: 1, x: 4)
+        XCTAssertTrue(charmGame.charmForTesting(row: 1))
+        XCTAssertTrue(charmGame.zombies.first?.charmed ?? false)
     }
 
     func testIceDoctorTelegraphsBeforeLaunchingOrb() {
@@ -277,6 +342,7 @@ final class GameModelTests: XCTestCase {
         game.addZombieForTesting(.hammerGiant, row: 2, x: 4)
         game.addZombieForTesting(.iceDoctor, row: 2, x: 5)
         game.addZombieForTesting(.dancerSamurai, row: 2, x: 6)
+        game.addZombieForTesting(.flameGiant, row: 2, x: 6.5)
         game.addZombieForTesting(.thunderShogun, row: 2, x: 7)
 
         XCTAssertTrue(game.charmForTesting(row: 2))
@@ -285,6 +351,8 @@ final class GameModelTests: XCTestCase {
         XCTAssertTrue(game.zombies.first(where: { $0.kind == .iceDoctor })?.charmed ?? false)
         XCTAssertTrue(game.charmForTesting(row: 2))
         XCTAssertTrue(game.zombies.first(where: { $0.kind == .dancerSamurai })?.charmed ?? false)
+        XCTAssertTrue(game.charmForTesting(row: 2))
+        XCTAssertTrue(game.zombies.first(where: { $0.kind == .flameGiant })?.charmed ?? false)
         XCTAssertFalse(game.zombies.first(where: { $0.kind == .thunderShogun })?.charmed ?? true)
     }
 }

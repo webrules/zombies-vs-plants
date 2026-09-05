@@ -9,6 +9,7 @@ enum PlantKind: String, CaseIterable, Identifiable, Sendable {
     case redHotPepper = "Red Hot Pepper"
     case cornCannon = "Corn Cannon"
     case charmMushroom = "Charm Mushroom"
+    case icePeaShooter = "Ice Pea Shooter"
 
     var id: Self { self }
     var cost: Int {
@@ -20,6 +21,7 @@ enum PlantKind: String, CaseIterable, Identifiable, Sendable {
         case .redHotPepper: 125
         case .cornCannon: 300
         case .charmMushroom: 175
+        case .icePeaShooter: 150
         }
     }
     var symbol: String {
@@ -31,24 +33,25 @@ enum PlantKind: String, CaseIterable, Identifiable, Sendable {
         case .redHotPepper: "FIRE"
         case .cornCannon: "CORN"
         case .charmMushroom: "CHARM"
+        case .icePeaShooter: "ICE"
         }
     }
 }
 
 enum ZombieKind: Sendable, Equatable {
-    case regular, bucketHead, dancerSamurai, hammerGiant, iceDoctor, thunderShogun
+    case regular, bucketHead, dancerSamurai, hammerGiant, iceDoctor, flameGiant, thunderShogun
     var maxHP: Double {
-        switch self { case .regular: 100; case .bucketHead: 230; case .dancerSamurai: 140; case .hammerGiant: 900; case .iceDoctor: 1_500; case .thunderShogun: 2_800 }
+        switch self { case .regular: 100; case .bucketHead: 230; case .dancerSamurai: 140; case .hammerGiant: 900; case .iceDoctor: 1_500; case .flameGiant: 760; case .thunderShogun: 2_800 }
     }
     var speed: Double {
-        switch self { case .regular: 0.32; case .bucketHead: 0.23; case .dancerSamurai: 0.28; case .hammerGiant: 0.145; case .iceDoctor: 0.12; case .thunderShogun: 0.10 }
+        switch self { case .regular: 0.32; case .bucketHead: 0.23; case .dancerSamurai: 0.28; case .hammerGiant: 0.145; case .iceDoctor: 0.12; case .flameGiant: 0.13; case .thunderShogun: 0.10 }
     }
     var title: String {
-        switch self { case .regular: "Samurai Scout"; case .bucketHead: "Armored Samurai"; case .dancerSamurai: "Dancer Samurai"; case .hammerGiant: "Hammer Shogun"; case .iceDoctor: "Armored Ice Doctor"; case .thunderShogun: "Thunder Shogun" }
+        switch self { case .regular: "Samurai Scout"; case .bucketHead: "Armored Samurai"; case .dancerSamurai: "Dancer Samurai"; case .hammerGiant: "Hammer Shogun"; case .iceDoctor: "Armored Ice Doctor"; case .flameGiant: "Flame Giant"; case .thunderShogun: "Thunder Shogun" }
     }
     var isBoss: Bool {
         switch self {
-        case .hammerGiant, .iceDoctor, .thunderShogun: true
+        case .hammerGiant, .iceDoctor, .flameGiant, .thunderShogun: true
         case .regular, .bucketHead, .dancerSamurai: false
         }
     }
@@ -66,6 +69,7 @@ struct Plant: Identifiable, Sendable {
     var hitFlash: Double = 0
     var recoil: Double = 0
     var freezeTimer: Double = 0
+    var burnTimer: Double = 0
     var charmTargetID: UUID?
 }
 
@@ -86,12 +90,14 @@ struct Zombie: Identifiable, Sendable {
     var dancePhase: Double = 0
     var danceBoostTimer: Double = 0
     var danceCooldown: Double = 2.5
+    var slowTimer: Double = 0
 }
 
 struct Pea: Identifiable, Sendable {
     let id = UUID()
     let row: Int
     var x: Double
+    let icy: Bool
     var age: Double = 0
 }
 
@@ -149,6 +155,9 @@ final class GameModel: ObservableObject {
     static let cornCannonCooldownDuration = 18.0
     static let cornBossDamage = 240.0
     static let charmMushroomCooldownDuration = 12.0
+    static let icePeaCooldownDuration = 1.4
+    static let icePeaDamage = 18.0
+    static let icePeaSlowDuration = 3.5
 
     @Published private(set) var sunshine = GameModel.startingSunshine
     @Published private(set) var elapsed = 0.0
@@ -161,6 +170,7 @@ final class GameModel: ObservableObject {
     @Published private(set) var cherryCooldown = 0.0
     @Published private(set) var pepperCooldown = 0.0
     @Published private(set) var cornCooldown = 0.0
+    @Published private(set) var icePeaCooldown = 0.0
     @Published private(set) var explosion: (cell: GridCell, remaining: Double)?
     @Published private(set) var pepperBurst: (row: Int, remaining: Double)?
     @Published private(set) var cornMissiles: [CornMissile] = []
@@ -221,6 +231,7 @@ final class GameModel: ObservableObject {
         Spawn(time: 63, row: 1, kind: .bucketHead),
         Spawn(time: 65, row: 3, kind: .regular),
         Spawn(time: 66, row: 0, kind: .dancerSamurai),
+        Spawn(time: 66.5, row: 2, kind: .flameGiant),
         Spawn(time: 67, row: 0, kind: .thunderShogun)
     ]
 
@@ -311,6 +322,13 @@ final class GameModel: ObservableObject {
             audioIfEnabled(.charmCharge)
             return
         }
+        if kind == .icePeaShooter {
+            guard icePeaCooldown <= 0 else { audioIfEnabled(.error); return }
+            sunshine -= kind.cost
+            plants[cell] = Plant(kind: kind, hp: 125, actionTimer: 0.45)
+            audioIfEnabled(.plant)
+            return
+        }
         sunshine -= kind.cost
         let hp: Double = switch kind {
         case .sunflower: 100
@@ -320,6 +338,7 @@ final class GameModel: ObservableObject {
         case .redHotPepper: 85
         case .cornCannon: 180
         case .charmMushroom: 90
+        case .icePeaShooter: 125
         }
         plants[cell] = Plant(kind: kind, hp: hp, actionTimer: kind == .sunflower ? 2.5 : 0.4)
         audioIfEnabled(.plant)
@@ -348,6 +367,8 @@ final class GameModel: ObservableObject {
 
     func addIceOrbForTesting(row: Int, x: Double) { iceOrbs.append(IceOrb(row: row, x: x)) }
 
+    func addIcePeaForTesting(row: Int, x: Double) { peas.append(Pea(row: row, x: x, icy: true)) }
+
     func spawnScheduledForTesting(until time: Double) {
         elapsed = time
         spawnDueZombies()
@@ -369,6 +390,7 @@ final class GameModel: ObservableObject {
         cherryCooldown = 0
         pepperCooldown = 0
         cornCooldown = 0
+        icePeaCooldown = 0
         charmCooldown = 0
         explosion = nil
         pendingBomb = nil
@@ -397,6 +419,7 @@ final class GameModel: ObservableObject {
         cherryCooldown = max(0, cherryCooldown - dt)
         pepperCooldown = max(0, pepperCooldown - dt)
         cornCooldown = max(0, cornCooldown - dt)
+        icePeaCooldown = max(0, icePeaCooldown - dt)
         charmCooldown = max(0, charmCooldown - dt)
         waveBannerRemaining = max(0, waveBannerRemaining - dt)
         screenShake = max(0, screenShake - dt)
@@ -433,8 +456,13 @@ final class GameModel: ObservableObject {
             plant.hitFlash = max(0, plant.hitFlash - dt)
             plant.recoil = max(0, plant.recoil - dt)
             plant.freezeTimer = max(0, plant.freezeTimer - dt)
+            plant.burnTimer = max(0, plant.burnTimer - dt)
             let actionRate = plant.freezeTimer > 0 ? 0.32 : 1.0
             plant.actionTimer -= dt * actionRate
+            if plant.burnTimer > 0 {
+                plant.hp -= 12 * dt
+                plant.hitFlash = max(plant.hitFlash, 0.06)
+            }
             var consumed = false
             if plant.kind == .sunflower, plant.actionTimer <= 0 {
                 sunshine += 25
@@ -443,10 +471,17 @@ final class GameModel: ObservableObject {
                 audioIfEnabled(.sunshine)
             } else if plant.kind == .peaShooter, plant.actionTimer <= 0,
                       zombies.contains(where: { $0.row == cell.row && $0.x > Double(cell.column) }) {
-                peas.append(Pea(row: cell.row, x: Double(cell.column) + 0.72))
+                peas.append(Pea(row: cell.row, x: Double(cell.column) + 0.72, icy: false))
                 plant.actionTimer = 1.15
                 plant.recoil = 0.22
                 audioIfEnabled(.shoot)
+            } else if plant.kind == .icePeaShooter, plant.actionTimer <= 0,
+                      zombies.contains(where: { $0.row == cell.row && $0.x > Double(cell.column) }) {
+                peas.append(Pea(row: cell.row, x: Double(cell.column) + 0.72, icy: true))
+                plant.actionTimer = Self.icePeaCooldownDuration
+                plant.recoil = 0.22
+                icePeaCooldown = Self.icePeaCooldownDuration
+                audioIfEnabled(.icePeaShoot)
             } else if plant.kind == .redHotPepper, plant.actionTimer <= 0 {
                 triggerPepper(row: cell.row)
                 consumed = true
@@ -504,7 +539,13 @@ final class GameModel: ObservableObject {
             if let pea = peas.filter({ $0.row == zombies[zi].row && !hitPeas.contains($0.id) })
                 .min(by: { abs($0.x - zombies[zi].x) < abs($1.x - zombies[zi].x) }),
                abs(pea.x - zombies[zi].x) < 0.14 {
-                zombies[zi].hp -= 20
+                zombies[zi].hp -= pea.icy ? Self.icePeaDamage : 20
+                if pea.icy {
+                    zombies[zi].slowTimer = Self.icePeaSlowDuration
+                    addIceImpactParticles(at: GridCell(row: zombies[zi].row, column: max(0, min(Self.columns - 1, Int(zombies[zi].x)))))
+                    addSteamParticles(at: GridCell(row: zombies[zi].row, column: max(0, min(Self.columns - 1, Int(zombies[zi].x)))))
+                    audioIfEnabled(.icePeaHit)
+                }
                 zombies[zi].hitFlash = 0.13
                 hitPeas.insert(pea.id)
             }
@@ -519,6 +560,7 @@ final class GameModel: ObservableObject {
             zombies[zi].dancePhase += dt * (zombies[zi].charmed ? 5.5 : 7.0)
             zombies[zi].danceCooldown = max(0, zombies[zi].danceCooldown - dt)
             zombies[zi].danceBoostTimer = max(0, zombies[zi].danceBoostTimer - dt)
+            zombies[zi].slowTimer = max(0, zombies[zi].slowTimer - dt)
             let row = zombies[zi].row
 
             if zombies[zi].kind == .dancerSamurai, !zombies[zi].charmed,
@@ -617,6 +659,22 @@ final class GameModel: ObservableObject {
                     } else if zombies[zi].kind == .iceDoctor {
                         plant.hp -= 26 * dt
                         plant.hitFlash = 0.08
+                    } else if zombies[zi].kind == .flameGiant {
+                        if zombies[zi].strikeCharge <= 0, zombies[zi].attackCooldown <= 0 {
+                            zombies[zi].strikeCharge = 1.1
+                            audioIfEnabled(.flameReady)
+                        } else if zombies[zi].strikeCharge > 0 {
+                            zombies[zi].strikeCharge -= dt
+                            if zombies[zi].strikeCharge <= 0 {
+                                plant.hp -= 85
+                                plant.burnTimer = max(plant.burnTimer, 2.5)
+                                plant.hitFlash = 0.35
+                                zombies[zi].attackCooldown = 2.1
+                                screenShake = 0.2
+                                addFlameParticles(at: cell)
+                                audioIfEnabled(.flameStrike)
+                            }
+                        }
                     } else {
                         plant.hp -= 34 * dt
                         plant.hitFlash = 0.08
@@ -627,7 +685,8 @@ final class GameModel: ObservableObject {
             } else {
                 if zombies[zi].kind != .iceDoctor && zombies[zi].kind != .thunderShogun { zombies[zi].strikeCharge = 0 }
                 let danceSpeed = zombies[zi].kind == .dancerSamurai && zombies[zi].danceBoostTimer > 0 ? 1.55 : 1.0
-                zombies[zi].x -= zombies[zi].kind.speed * danceSpeed * dt
+                let slowMultiplier = zombies[zi].slowTimer > 0 ? 0.52 : 1.0
+                zombies[zi].x -= zombies[zi].kind.speed * danceSpeed * slowMultiplier * dt
             }
         }
 
@@ -649,6 +708,7 @@ final class GameModel: ObservableObject {
             }
             var zombie = Zombie(kind: spawn.kind, row: spawn.row, hp: spawn.kind.maxHP)
             if spawn.kind == .iceDoctor { zombie.attackCooldown = 2.6; audioIfEnabled(.doctorArrival) }
+            if spawn.kind == .flameGiant { zombie.attackCooldown = 2.2; audioIfEnabled(.flameArrival) }
             if spawn.kind == .thunderShogun { zombie.attackCooldown = 3.0; audioIfEnabled(.thunderArrival) }
             zombies.append(zombie)
         }
@@ -776,11 +836,27 @@ final class GameModel: ObservableObject {
         }
     }
 
+    private func addFlameParticles(at cell: GridCell) {
+        for i in 0..<18 {
+            let angle = Double(i) * Double.pi * 2 / 18
+            particles.append(BurstParticle(cell: cell, vx: cos(angle) * 0.32,
+                                           vy: sin(angle) * 0.32 - 0.18, life: 0.5, colorIndex: i.isMultiple(of: 2) ? 5 : 2))
+        }
+    }
+
     private func addLightningParticles(at cell: GridCell) {
         for i in 0..<28 {
             let angle = Double(i) * Double.pi * 2 / 28
             particles.append(BurstParticle(cell: cell, vx: cos(angle) * 0.5,
                                            vy: sin(angle) * 0.5, life: 0.55 + Double(i % 3) * 0.08, colorIndex: 8))
+        }
+    }
+
+    private func addSteamParticles(at cell: GridCell) {
+        for i in 0..<8 {
+            let angle = Double(i) * Double.pi * 2 / 8
+            particles.append(BurstParticle(cell: cell, vx: cos(angle) * 0.18,
+                                           vy: sin(angle) * 0.18 - 0.16, life: 0.42, colorIndex: 7))
         }
     }
 
