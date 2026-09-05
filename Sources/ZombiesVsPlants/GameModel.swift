@@ -8,6 +8,7 @@ enum PlantKind: String, CaseIterable, Identifiable, Sendable {
     case cherryBomb = "Cherry Bomb"
     case redHotPepper = "Red Hot Pepper"
     case cornCannon = "Corn Cannon"
+    case charmMushroom = "Charm Mushroom"
 
     var id: Self { self }
     var cost: Int {
@@ -18,6 +19,7 @@ enum PlantKind: String, CaseIterable, Identifiable, Sendable {
         case .cherryBomb: 150
         case .redHotPepper: 125
         case .cornCannon: 300
+        case .charmMushroom: 175
         }
     }
     var symbol: String {
@@ -28,22 +30,29 @@ enum PlantKind: String, CaseIterable, Identifiable, Sendable {
         case .cherryBomb: "BOOM"
         case .redHotPepper: "FIRE"
         case .cornCannon: "CORN"
+        case .charmMushroom: "CHARM"
         }
     }
 }
 
 enum ZombieKind: Sendable, Equatable {
-    case regular, bucketHead, hammerGiant, iceDoctor, thunderShogun
+    case regular, bucketHead, dancerSamurai, hammerGiant, iceDoctor, thunderShogun
     var maxHP: Double {
-        switch self { case .regular: 100; case .bucketHead: 230; case .hammerGiant: 900; case .iceDoctor: 1_500; case .thunderShogun: 2_800 }
+        switch self { case .regular: 100; case .bucketHead: 230; case .dancerSamurai: 140; case .hammerGiant: 900; case .iceDoctor: 1_500; case .thunderShogun: 2_800 }
     }
     var speed: Double {
-        switch self { case .regular: 0.32; case .bucketHead: 0.23; case .hammerGiant: 0.145; case .iceDoctor: 0.12; case .thunderShogun: 0.10 }
+        switch self { case .regular: 0.32; case .bucketHead: 0.23; case .dancerSamurai: 0.28; case .hammerGiant: 0.145; case .iceDoctor: 0.12; case .thunderShogun: 0.10 }
     }
     var title: String {
-        switch self { case .regular: "Samurai Scout"; case .bucketHead: "Armored Samurai"; case .hammerGiant: "Hammer Shogun"; case .iceDoctor: "Armored Ice Doctor"; case .thunderShogun: "Thunder Shogun" }
+        switch self { case .regular: "Samurai Scout"; case .bucketHead: "Armored Samurai"; case .dancerSamurai: "Dancer Samurai"; case .hammerGiant: "Hammer Shogun"; case .iceDoctor: "Armored Ice Doctor"; case .thunderShogun: "Thunder Shogun" }
     }
-    var isBoss: Bool { self != .regular && self != .bucketHead }
+    var isBoss: Bool {
+        switch self {
+        case .hammerGiant, .iceDoctor, .thunderShogun: true
+        case .regular, .bucketHead, .dancerSamurai: false
+        }
+    }
+    var isCharmImmune: Bool { self == .thunderShogun }
 }
 
 struct GridCell: Hashable, Sendable { let row: Int; let column: Int }
@@ -57,6 +66,7 @@ struct Plant: Identifiable, Sendable {
     var hitFlash: Double = 0
     var recoil: Double = 0
     var freezeTimer: Double = 0
+    var charmTargetID: UUID?
 }
 
 struct Zombie: Identifiable, Sendable {
@@ -70,6 +80,12 @@ struct Zombie: Identifiable, Sendable {
     var strikeCharge: Double = 0
     var attackCooldown: Double = 0
     var lightningTarget: GridCell?
+    var charmed = false
+    var charmTimer: Double = 0
+    var allyAttackTimer: Double = 0
+    var dancePhase: Double = 0
+    var danceBoostTimer: Double = 0
+    var danceCooldown: Double = 2.5
 }
 
 struct Pea: Identifiable, Sendable {
@@ -132,6 +148,7 @@ final class GameModel: ObservableObject {
     static let pepperCooldownDuration = 8.0
     static let cornCannonCooldownDuration = 18.0
     static let cornBossDamage = 240.0
+    static let charmMushroomCooldownDuration = 12.0
 
     @Published private(set) var sunshine = GameModel.startingSunshine
     @Published private(set) var elapsed = 0.0
@@ -149,6 +166,8 @@ final class GameModel: ObservableObject {
     @Published private(set) var cornMissiles: [CornMissile] = []
     @Published private(set) var cornTarget: GridCell?
     @Published private(set) var cornBlast: (cell: GridCell, remaining: Double)?
+    @Published private(set) var charmCooldown = 0.0
+    @Published private(set) var charmBurst: (row: Int, remaining: Double)?
     @Published private(set) var pendingBomb: (cell: GridCell, remaining: Double)?
     @Published private(set) var waveBannerRemaining = 0.0
     @Published private(set) var screenShake = 0.0
@@ -159,31 +178,49 @@ final class GameModel: ObservableObject {
     private var timer: Timer?
     private var lastTick = Date()
     private var nextSpawn = 0
+    private var dancerSpawnCountsByWave = [Int](repeating: 0, count: 4)
     private let audio = AudioSynth.shared
+
+    static let maxDancerSamuraiPerWave = 5
 
     let schedule: [Spawn] = [
         Spawn(time: 3, row: 2, kind: .regular),
         Spawn(time: 8, row: 0, kind: .regular),
+        Spawn(time: 10, row: 1, kind: .dancerSamurai),
         Spawn(time: 13, row: 4, kind: .regular),
+        Spawn(time: 15, row: 3, kind: .dancerSamurai),
         Spawn(time: 18, row: 1, kind: .regular),
+        Spawn(time: 20, row: 0, kind: .dancerSamurai),
+        Spawn(time: 23, row: 2, kind: .dancerSamurai),
         Spawn(time: 24, row: 3, kind: .regular),
+        Spawn(time: 26, row: 4, kind: .dancerSamurai),
         Spawn(time: 29, row: 2, kind: .bucketHead),
+        Spawn(time: 32, row: 4, kind: .dancerSamurai),
         Spawn(time: 33, row: 0, kind: .regular),
+        Spawn(time: 35, row: 1, kind: .dancerSamurai),
         Spawn(time: 36, row: 4, kind: .regular),
+        Spawn(time: 38, row: 2, kind: .dancerSamurai),
         Spawn(time: 39, row: 1, kind: .regular),
         Spawn(time: 42, row: 3, kind: .bucketHead),
+        Spawn(time: 43, row: 3, kind: .dancerSamurai),
         Spawn(time: 45, row: 2, kind: .regular),
+        Spawn(time: 47, row: 1, kind: .dancerSamurai),
         Spawn(time: 49, row: 0, kind: .bucketHead),
+        Spawn(time: 50, row: 2, kind: .dancerSamurai),
         Spawn(time: 51, row: 4, kind: .regular),
         Spawn(time: 53, row: 1, kind: .regular),
+        Spawn(time: 54, row: 1, kind: .dancerSamurai),
         Spawn(time: 55, row: 4, kind: .iceDoctor),
         Spawn(time: 56, row: 3, kind: .regular),
         Spawn(time: 57, row: 2, kind: .bucketHead),
+        Spawn(time: 58, row: 3, kind: .dancerSamurai),
         Spawn(time: 59, row: 0, kind: .regular),
+        Spawn(time: 60, row: 4, kind: .dancerSamurai),
         Spawn(time: 61, row: 4, kind: .bucketHead),
         Spawn(time: 62, row: 2, kind: .hammerGiant),
         Spawn(time: 63, row: 1, kind: .bucketHead),
         Spawn(time: 65, row: 3, kind: .regular),
+        Spawn(time: 66, row: 0, kind: .dancerSamurai),
         Spawn(time: 67, row: 0, kind: .thunderShogun)
     ]
 
@@ -265,6 +302,15 @@ final class GameModel: ObservableObject {
             audioIfEnabled(.cornLoad)
             return
         }
+        if kind == .charmMushroom {
+            guard charmCooldown <= 0 else { audioIfEnabled(.error); return }
+            sunshine -= kind.cost
+            charmCooldown = Self.charmMushroomCooldownDuration
+            let targetID = chooseCharmTarget(row: cell.row)
+            plants[cell] = Plant(kind: kind, hp: 90, actionTimer: 1.0, charmTargetID: targetID)
+            audioIfEnabled(.charmCharge)
+            return
+        }
         sunshine -= kind.cost
         let hp: Double = switch kind {
         case .sunflower: 100
@@ -273,6 +319,7 @@ final class GameModel: ObservableObject {
         case .cherryBomb: 1
         case .redHotPepper: 85
         case .cornCannon: 180
+        case .charmMushroom: 90
         }
         plants[cell] = Plant(kind: kind, hp: hp, actionTimer: kind == .sunflower ? 2.5 : 0.4)
         audioIfEnabled(.plant)
@@ -300,6 +347,14 @@ final class GameModel: ObservableObject {
     func detonateForTesting(at cell: GridCell) { detonate(at: cell) }
 
     func addIceOrbForTesting(row: Int, x: Double) { iceOrbs.append(IceOrb(row: row, x: x)) }
+
+    func spawnScheduledForTesting(until time: Double) {
+        elapsed = time
+        spawnDueZombies()
+    }
+
+    @discardableResult
+    func charmForTesting(row: Int) -> Bool { triggerCharm(row: row, targetID: nil) }
 #endif
 
     private func resetState() {
@@ -314,16 +369,19 @@ final class GameModel: ObservableObject {
         cherryCooldown = 0
         pepperCooldown = 0
         cornCooldown = 0
+        charmCooldown = 0
         explosion = nil
         pendingBomb = nil
         pepperBurst = nil
         cornMissiles = []
         cornTarget = nil
         cornBlast = nil
+        charmBurst = nil
         cornPlacementMode = true
         waveBannerRemaining = 2.2
         screenShake = 0
         nextSpawn = 0
+        dancerSpawnCountsByWave = [Int](repeating: 0, count: 4)
     }
 
     private func clockTick() {
@@ -339,6 +397,7 @@ final class GameModel: ObservableObject {
         cherryCooldown = max(0, cherryCooldown - dt)
         pepperCooldown = max(0, pepperCooldown - dt)
         cornCooldown = max(0, cornCooldown - dt)
+        charmCooldown = max(0, charmCooldown - dt)
         waveBannerRemaining = max(0, waveBannerRemaining - dt)
         screenShake = max(0, screenShake - dt)
         if wave != oldWave { waveBannerRemaining = 2.2; audioIfEnabled(.wave) }
@@ -354,6 +413,10 @@ final class GameModel: ObservableObject {
             blast.remaining -= dt
             cornBlast = blast.remaining > 0 ? blast : nil
         }
+        if var charm = charmBurst {
+            charm.remaining -= dt
+            charmBurst = charm.remaining > 0 ? charm : nil
+        }
         if var bomb = pendingBomb {
             bomb.remaining -= dt
             if bomb.remaining <= 0 {
@@ -362,14 +425,7 @@ final class GameModel: ObservableObject {
             } else { pendingBomb = bomb }
         }
 
-        while nextSpawn < schedule.count, schedule[nextSpawn].time <= elapsed {
-            let spawn = schedule[nextSpawn]
-            var zombie = Zombie(kind: spawn.kind, row: spawn.row, hp: spawn.kind.maxHP)
-            if spawn.kind == .iceDoctor { zombie.attackCooldown = 2.6; audioIfEnabled(.doctorArrival) }
-            if spawn.kind == .thunderShogun { zombie.attackCooldown = 3.0; audioIfEnabled(.thunderArrival) }
-            zombies.append(zombie)
-            nextSpawn += 1
-        }
+        spawnDueZombies()
 
         for cell in Array(plants.keys) {
             guard var plant = plants[cell] else { continue }
@@ -394,6 +450,13 @@ final class GameModel: ObservableObject {
             } else if plant.kind == .redHotPepper, plant.actionTimer <= 0 {
                 triggerPepper(row: cell.row)
                 consumed = true
+            } else if plant.kind == .charmMushroom, plant.actionTimer <= 0 {
+                if triggerCharm(row: cell.row, targetID: plant.charmTargetID) {
+                    consumed = true
+                } else {
+                    plant.actionTimer = 0.45
+                    audioIfEnabled(.error)
+                }
             }
             if consumed { plants.removeValue(forKey: cell) }
             else { plants[cell] = plant }
@@ -453,7 +516,43 @@ final class GameModel: ObservableObject {
             zombies[zi].age += dt
             zombies[zi].hitFlash = max(0, zombies[zi].hitFlash - dt)
             zombies[zi].attackCooldown = max(0, zombies[zi].attackCooldown - dt)
+            zombies[zi].dancePhase += dt * (zombies[zi].charmed ? 5.5 : 7.0)
+            zombies[zi].danceCooldown = max(0, zombies[zi].danceCooldown - dt)
+            zombies[zi].danceBoostTimer = max(0, zombies[zi].danceBoostTimer - dt)
             let row = zombies[zi].row
+
+            if zombies[zi].kind == .dancerSamurai, !zombies[zi].charmed,
+               zombies[zi].danceCooldown <= 0 {
+                zombies[zi].danceBoostTimer = 1.6
+                zombies[zi].danceCooldown = 7.0
+                audioIfEnabled(.danceBeat)
+            }
+
+            if zombies[zi].charmed {
+                zombies[zi].charmTimer -= dt
+                if zombies[zi].charmTimer > 0 {
+                    zombies[zi].allyAttackTimer = max(0, zombies[zi].allyAttackTimer - dt)
+                    let enemyIndex = zombies.indices
+                        .filter { $0 != zi && zombies[$0].row == row && !zombies[$0].charmed && zombies[$0].x > zombies[zi].x }
+                        .min(by: { zombies[$0].x < zombies[$1].x })
+                    if let enemyIndex, zombies[enemyIndex].x - zombies[zi].x < 0.95 {
+                        zombies[enemyIndex].hp -= 34 * dt
+                        zombies[enemyIndex].hitFlash = 0.1
+                        if zombies[zi].allyAttackTimer <= 0 {
+                            zombies[zi].allyAttackTimer = 0.5
+                            audioIfEnabled(.allyStrike)
+                            addImpactParticles(at: GridCell(row: row, column: max(0, min(Self.columns-1, Int(zombies[enemyIndex].x)))))
+                        }
+                    } else {
+                        zombies[zi].x += zombies[zi].kind.speed * dt
+                    }
+                    continue
+                } else {
+                    zombies[zi].charmed = false
+                    zombies[zi].charmTimer = 0
+                    audioIfEnabled(.charmEnd)
+                }
+            }
             let target = plants.keys
                 .filter { $0.row == row && Double($0.column) <= zombies[zi].x }
                 .max(by: { $0.column < $1.column })
@@ -527,7 +626,8 @@ final class GameModel: ObservableObject {
                 }
             } else {
                 if zombies[zi].kind != .iceDoctor && zombies[zi].kind != .thunderShogun { zombies[zi].strikeCharge = 0 }
-                zombies[zi].x -= zombies[zi].kind.speed * dt
+                let danceSpeed = zombies[zi].kind == .dancerSamurai && zombies[zi].danceBoostTimer > 0 ? 1.55 : 1.0
+                zombies[zi].x -= zombies[zi].kind.speed * danceSpeed * dt
             }
         }
 
@@ -535,6 +635,22 @@ final class GameModel: ObservableObject {
             finish(.lost)
         } else if nextSpawn == schedule.count, zombies.isEmpty, elapsed > schedule.last!.time {
             finish(.won)
+        }
+    }
+
+    private func spawnDueZombies() {
+        while nextSpawn < schedule.count, schedule[nextSpawn].time <= elapsed {
+            let spawn = schedule[nextSpawn]
+            nextSpawn += 1
+            if spawn.kind == .dancerSamurai {
+                let spawnWave = spawn.time < 27 ? 1 : (spawn.time < 48 ? 2 : 3)
+                guard dancerSpawnCountsByWave[spawnWave] < Self.maxDancerSamuraiPerWave else { continue }
+                dancerSpawnCountsByWave[spawnWave] += 1
+            }
+            var zombie = Zombie(kind: spawn.kind, row: spawn.row, hp: spawn.kind.maxHP)
+            if spawn.kind == .iceDoctor { zombie.attackCooldown = 2.6; audioIfEnabled(.doctorArrival) }
+            if spawn.kind == .thunderShogun { zombie.attackCooldown = 3.0; audioIfEnabled(.thunderArrival) }
+            zombies.append(zombie)
         }
     }
 
@@ -582,6 +698,30 @@ final class GameModel: ObservableObject {
         }
         screenShake = 0.28
         audioIfEnabled(.pepperBlast)
+    }
+
+    private func chooseCharmTarget(row: Int) -> UUID? {
+        let sameRow = zombies.filter { $0.row == row && !$0.kind.isCharmImmune && !$0.charmed }
+        if let target = sameRow.min(by: { $0.x < $1.x }) { return target.id }
+        return zombies.filter { !$0.kind.isCharmImmune && !$0.charmed }.min(by: { $0.x < $1.x })?.id
+    }
+
+    private func triggerCharm(row: Int, targetID: UUID?) -> Bool {
+        let selected = targetID.flatMap { id in zombies.firstIndex(where: { $0.id == id && !$0.kind.isCharmImmune && !$0.charmed }) }
+            ?? zombies.firstIndex(where: { $0.row == row && !$0.kind.isCharmImmune && !$0.charmed })
+            ?? zombies.firstIndex(where: { !$0.kind.isCharmImmune && !$0.charmed })
+        guard let index = selected else { return false }
+        zombies[index].charmed = true
+        zombies[index].charmTimer = 8.0
+        zombies[index].allyAttackTimer = 0.2
+        charmBurst = (zombies[index].row, 0.72)
+        for i in 0..<18 {
+            let angle = Double(i) * Double.pi * 2 / 18
+            particles.append(BurstParticle(cell: GridCell(row: zombies[index].row, column: max(0, min(Self.columns-1, Int(zombies[index].x)))), vx: cos(angle) * 0.35,
+                                           vy: sin(angle) * 0.35, life: 0.5 + Double(i % 3) * 0.1, colorIndex: 9))
+        }
+        audioIfEnabled(.charmCast)
+        return true
     }
 
     private func fireCorn(at target: GridCell) {

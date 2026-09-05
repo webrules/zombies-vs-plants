@@ -29,14 +29,38 @@ final class GameModelTests: XCTestCase {
 
     func testWavesEscalateAndContainBothEnemyTypes() {
         let game = GameModel()
-        XCTAssertEqual(game.schedule.count, 23)
+        XCTAssertEqual(game.schedule.count, 38)
         XCTAssertTrue(game.schedule.contains { $0.kind == .regular })
         XCTAssertTrue(game.schedule.contains { $0.kind == .bucketHead })
         XCTAssertTrue(game.schedule.contains { $0.kind == .hammerGiant })
         XCTAssertTrue(game.schedule.contains { $0.kind == .iceDoctor })
         XCTAssertTrue(game.schedule.contains { $0.kind == .thunderShogun })
+        XCTAssertTrue(game.schedule.contains { $0.kind == .dancerSamurai })
+        let dancers = game.schedule.filter { $0.kind == .dancerSamurai }
+        XCTAssertEqual(dancers.count, GameModel.maxDancerSamuraiPerWave * 3)
+        XCTAssertEqual(dancers.filter { $0.time < 27 }.count, GameModel.maxDancerSamuraiPerWave)
+        XCTAssertEqual(dancers.filter { $0.time >= 27 && $0.time < 48 }.count, GameModel.maxDancerSamuraiPerWave)
+        XCTAssertEqual(dancers.filter { $0.time >= 48 }.count, GameModel.maxDancerSamuraiPerWave)
         XCTAssertGreaterThan(game.schedule.filter { $0.time >= 48 }.count,
                              game.schedule.filter { $0.time < 27 }.count)
+    }
+
+    func testDancerSamuraiGenerationAllowsEachWaveAndCapsEachAtFive() {
+        let firstWave = GameModel()
+        firstWave.soundEnabled = false
+        firstWave.spawnScheduledForTesting(until: 26.9)
+        XCTAssertEqual(firstWave.zombies.filter { $0.kind == .dancerSamurai }.count, 5)
+
+        let secondWave = GameModel()
+        secondWave.soundEnabled = false
+        secondWave.spawnScheduledForTesting(until: 47.9)
+        XCTAssertEqual(secondWave.wave, 2)
+        XCTAssertEqual(secondWave.zombies.filter { $0.kind == .dancerSamurai }.count, 10)
+
+        let fullLevel = GameModel()
+        fullLevel.soundEnabled = false
+        fullLevel.spawnScheduledForTesting(until: 70)
+        XCTAssertEqual(fullLevel.zombies.filter { $0.kind == .dancerSamurai }.count, 15)
     }
 
     func testHammerGiantIsSlowAndBossTough() {
@@ -200,5 +224,67 @@ final class GameModelTests: XCTestCase {
         XCTAssertEqual(game.plants[cell]?.hp ?? -1, 520, "The warning phase must give the player time to react")
         game.advanceForTesting(2.1)
         XCTAssertNil(game.plants[cell], "Lightning ignores plant HP and removes the marked plant")
+    }
+
+    func testCharmMushroomTargetsChargesConvertsAndCooldowns() {
+        let game = GameModel()
+        game.soundEnabled = false
+        game.start()
+        game.togglePause()
+        game.addZombieForTesting(.regular, row: 2, x: 4)
+        game.addZombieForTesting(.bucketHead, row: 2, x: 5)
+        game.addZombieForTesting(.hammerGiant, row: 2, x: 6)
+        game.selectPlant(.charmMushroom)
+        let mushroomCell = GridCell(row: 2, column: 1)
+        game.plant(at: mushroomCell)
+        XCTAssertEqual(game.sunshine, 825)
+        XCTAssertEqual(game.charmCooldown, GameModel.charmMushroomCooldownDuration, accuracy: 0.01)
+        XCTAssertNotNil(game.plants[mushroomCell]?.charmTargetID)
+
+        game.advanceForTesting(0.7)
+        XCTAssertFalse(game.zombies.first?.charmed ?? true, "The mushroom needs a readable charge phase")
+        game.advanceForTesting(0.45)
+        XCTAssertTrue(game.zombies.contains { $0.charmed && $0.kind == .regular })
+        XCTAssertNil(game.plants[mushroomCell])
+        XCTAssertEqual(game.zombies.first(where: { $0.kind == .hammerGiant })?.hp ?? -1, 900, accuracy: 0.01, "Bosses are immune to Charm Mushroom")
+
+        game.advanceForTesting(0.6)
+        XCTAssertLessThan(game.zombies.first(where: { $0.kind == .bucketHead })?.hp ?? 230, 230, "A charmed samurai should attack an enemy")
+        game.plant(at: GridCell(row: 2, column: 0))
+        XCTAssertNil(game.plants[GridCell(row: 2, column: 0)], "Charm cooldown should prevent immediate replanting")
+    }
+
+    func testDancerSamuraiGetsAReadableSpeedBurstAndCanBeCharmed() {
+        let game = GameModel()
+        game.soundEnabled = false
+        game.start()
+        game.togglePause()
+        game.addZombieForTesting(.dancerSamurai, row: 1, x: 7)
+        XCTAssertEqual(ZombieKind.dancerSamurai.title, "Dancer Samurai")
+        game.advanceForTesting(2.7)
+        XCTAssertGreaterThan(game.zombies.first?.danceBoostTimer ?? 0, 0)
+        game.selectPlant(.charmMushroom)
+        game.plant(at: GridCell(row: 1, column: 1))
+        game.advanceForTesting(1.1)
+        XCTAssertTrue(game.zombies.first?.charmed ?? false, "Charm Mushroom must affect the Dancer Samurai")
+    }
+
+    func testCharmAffectsEarlierBossesButThunderShogunIsImmune() {
+        let game = GameModel()
+        game.soundEnabled = false
+        game.start()
+        game.togglePause()
+        game.addZombieForTesting(.hammerGiant, row: 2, x: 4)
+        game.addZombieForTesting(.iceDoctor, row: 2, x: 5)
+        game.addZombieForTesting(.dancerSamurai, row: 2, x: 6)
+        game.addZombieForTesting(.thunderShogun, row: 2, x: 7)
+
+        XCTAssertTrue(game.charmForTesting(row: 2))
+        XCTAssertTrue(game.zombies.first(where: { $0.kind == .hammerGiant })?.charmed ?? false)
+        XCTAssertTrue(game.charmForTesting(row: 2))
+        XCTAssertTrue(game.zombies.first(where: { $0.kind == .iceDoctor })?.charmed ?? false)
+        XCTAssertTrue(game.charmForTesting(row: 2))
+        XCTAssertTrue(game.zombies.first(where: { $0.kind == .dancerSamurai })?.charmed ?? false)
+        XCTAssertFalse(game.zombies.first(where: { $0.kind == .thunderShogun })?.charmed ?? true)
     }
 }

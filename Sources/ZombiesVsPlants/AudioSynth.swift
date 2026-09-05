@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 
-enum SoundEffect: CaseIterable { case shoot, sunshine, explosion, win, loss, plant, error, fuse, wave, giantReady, giantStrike, iceCharge, iceLaunch, iceHit, doctorArrival, pepperFuse, pepperBlast, pepperHit, cornLoad, cornLaunch, cornImpact, thunderArrival, thunderCharge, thunderStrike }
+enum SoundEffect: CaseIterable { case shoot, sunshine, explosion, win, loss, plant, error, fuse, wave, giantReady, giantStrike, iceCharge, iceLaunch, iceHit, doctorArrival, pepperFuse, pepperBlast, pepperHit, cornLoad, cornLaunch, cornImpact, thunderArrival, thunderCharge, thunderStrike, charmCharge, charmCast, charmEnd, allyStrike, danceBeat }
 
 @MainActor
 final class AudioSynth {
@@ -33,6 +33,11 @@ final class AudioSynth {
         sounds[.thunderArrival] = makeSound(notes: [(98, 0.18), (147, 0.18), (220, 0.28)], volume: 0.28)
         sounds[.thunderCharge] = makeSound(notes: [(140, 0.12), (196, 0.16), (330, 0.22)], volume: 0.25)
         sounds[.thunderStrike] = makeNoise(duration: 0.55, volume: 0.48)
+        sounds[.charmCharge] = makeSound(notes: [(330, 0.12), (440, 0.12), (550, 0.15)], volume: 0.16)
+        sounds[.charmCast] = makeSound(notes: [(880, 0.07), (1047, 0.12), (1320, 0.18)], volume: 0.18)
+        sounds[.charmEnd] = makeSound(notes: [(660, 0.08), (440, 0.12)], volume: 0.12)
+        sounds[.allyStrike] = makeSound(notes: [(180, 0.04), (250, 0.06)], volume: 0.14)
+        sounds[.danceBeat] = makeSound(notes: [(180, 0.05), (280, 0.05), (180, 0.05)], volume: 0.14)
     }
 
     func play(_ effect: SoundEffect) {

@@ -81,15 +81,15 @@ struct ContentView: View {
                 Button { game.selectPlant(kind) } label: {
                     PlantCard(kind: kind, selected: game.selectedPlant == kind,
                               affordable: game.sunshine >= kind.cost,
-                              cooldown: kind == .cherryBomb ? game.cherryCooldown : kind == .redHotPepper ? game.pepperCooldown : kind == .cornCannon ? game.cornCooldown : 0,
-                              cooldownDuration: kind == .redHotPepper ? GameModel.pepperCooldownDuration : kind == .cornCannon ? GameModel.cornCannonCooldownDuration : GameModel.cherryCooldownDuration,
+                              cooldown: kind == .cherryBomb ? game.cherryCooldown : kind == .redHotPepper ? game.pepperCooldown : kind == .cornCannon ? game.cornCooldown : kind == .charmMushroom ? game.charmCooldown : 0,
+                              cooldownDuration: kind == .redHotPepper ? GameModel.pepperCooldownDuration : kind == .cornCannon ? GameModel.cornCannonCooldownDuration : kind == .charmMushroom ? GameModel.charmMushroomCooldownDuration : GameModel.cherryCooldownDuration,
                               animationTime: game.elapsed)
                 }
                 .buttonStyle(.plain)
                 .disabled(game.phase != .playing)
             }
             Spacer(minLength: 0)
-            Text("GARDEN NOTE\nStart with 1,000 sunshine.\nPlace, then aim the cannon.")
+            Text("GARDEN NOTE\nStart with 1,000 sunshine.\nCharm samurai, never bosses.")
                 .font(.caption.bold())
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.white.opacity(0.92))
@@ -132,6 +132,13 @@ struct ContentView: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 8).padding(.vertical, 3)
                     .background(.purple, in: Capsule())
+            }
+            if game.zombies.contains(where: { $0.kind == .dancerSamurai }) {
+                Text("DANCER")
+                    .font(.caption.weight(.black))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(.orange, in: Capsule())
             }
         }
         .padding(.horizontal, 16)
@@ -224,6 +231,7 @@ private struct PlantCard: View {
         case .cherryBomb: .red
         case .redHotPepper: Color(red: 0.84, green: 0.12, blue: 0.08)
         case .cornCannon: Color(red: 0.83, green: 0.60, blue: 0.08)
+        case .charmMushroom: Color(red: 0.55, green: 0.20, blue: 0.68)
         }
     }
 }

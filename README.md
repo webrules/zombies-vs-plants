@@ -13,10 +13,11 @@ Requires macOS 14 or newer and Xcode 16 or newer.
 ## How to play
 
 1. Press **Start Level**. Every new game begins with **1,000 sunshine**, shown at the top of the seed tray.
-2. Choose one of the six original defenders—Sunflower, Pea Shooter, Wall Plant, Cherry Bomb, **Red Hot Pepper**, or **Corn Cannon**—then click an empty garden square.
+2. Choose one of the seven original defenders—Sunflower, Pea Shooter, Wall Plant, Cherry Bomb, Red Hot Pepper, Corn Cannon, or **Charm Mushroom**—then click an empty garden square.
 3. Sunflowers automatically add 25 sunshine. Pea Shooters fire down their lane, Wall Plants block attackers, Cherry Bombs hit enemies in a nearby three-row area after a short visible fuse and six-second recharge, and Red Hot Peppers charge briefly before sweeping a red flame through their entire row (eight-second recharge).
 4. A Corn Cannon costs 300 sunshine and has an 18-second cooldown. Place it first; then click its seed card again to enter placement mode for another cannon, or click any lawn grid to choose a target. A corn missile follows a visible arcing trail and explodes near that target, clearing ordinary samurai in a three-row area and damaging bosses.
-5. Survive three increasingly difficult waves of fantasy samurai scouts, armored samurai, and three final-wave bosses. If an enemy crosses the red moonbridge gate at the far left, the garden is lost.
+5. Charm Mushroom costs 175 sunshine and has a 12-second cooldown. It briefly charges, marks the nearest eligible enemy in its lane, and converts a scout, armored samurai, Dancer Samurai, Hammer Shogun, or Armored Ice Doctor into an ally for eight seconds. The ally turns around, walks right, and attacks nearby uncharmed enemies. Only the Thunder Shogun is charm-immune; its health bar visibly says **CHARM IMMUNE**.
+6. Survive three increasingly difficult waves of fantasy samurai scouts, armored samurai, Dancer Samurai, and three final-wave bosses. If an enemy crosses the red moonbridge gate at the far left, the garden is lost.
 
 ## Final-wave bosses
 
@@ -25,6 +26,8 @@ Requires macOS 14 or newer and Xcode 16 or newer.
 - **Thunder Shogun:** 2,800 boss health—the toughest enemy in the garden. It selects one plant, marks that grid with a lightning target, and charges for 2.4 seconds with a visible bolt and warning cue. The lightning then destroys the marked plant regardless of its remaining health. Move your defenses or fire the Corn Cannon while the warning is active.
 
 Bosses can also be damaged by Pea Shooters, so the number of bombs still needed may decrease during normal play. Health bars, named boss labels, warning glows, projectile trails, frost effects, impact particles, and distinct synthesized cues keep the attacks readable.
+
+The **Dancer Samurai** is a family-friendly ordinary enemy variant that can appear in all three waves. Each wave has its own hard five-enemy generation cap, so at most five dancers appear in wave one, five in wave two, and five in wave three. Its visible fan-and-step dance periodically gives it a short speed burst with a rhythm cue and a “DANCE DASH” ring. Charm Mushroom can convert it, after which the dancing samurai becomes an ally and attacks another enemy instead. Charm also works on the two earlier bosses; their boss special attacks pause while they are allied. The Thunder Shogun alone remains immune.
 
 The Red Hot Pepper instantly clears ordinary samurai in its row once its warning animation completes. It deals 210 damage to the Hammer Shogun and 180 damage to the Armored Ice Doctor; these are separate from Cherry Bomb damage, so the exact three-bomb/five-bomb boss rules remain intact when testing Cherry Bombs alone. A Corn Cannon deals 240 damage to any boss in its blast area, giving it a strong but bounded role against the Thunder Shogun.
 
