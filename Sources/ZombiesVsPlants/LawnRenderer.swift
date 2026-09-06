@@ -10,12 +10,14 @@ enum LawnRenderer {
         context.fill(Path(CGRect(origin: .zero, size: size)), with: .linearGradient(
             Gradient(colors: [Color(red: 0.58, green: 0.80, blue: 0.38), Color(red: 0.23, green: 0.53, blue: 0.28)]),
             startPoint: .zero, endPoint: CGPoint(x: 0, y: size.height)))
+        drawDistantGarden(context: &context, size: size, time: game.elapsed)
 
         let water = CGRect(x: 0, y: size.height*0.455, width: size.width, height: size.height*0.09)
         context.fill(Path(water), with: .linearGradient(Gradient(colors: [Color.cyan.opacity(0.50), Color.blue.opacity(0.34), Color.white.opacity(0.28)]), startPoint: CGPoint(x: 0, y: water.minY), endPoint: CGPoint(x: size.width, y: water.maxY)))
         for i in 0..<10 {
-            let y = water.minY + CGFloat(i % 3) * water.height/4 + water.height*0.18
-            var ripple = Path(); ripple.move(to: CGPoint(x: CGFloat(i)*size.width/9 - 18, y: y)); ripple.addQuadCurve(to: CGPoint(x: CGFloat(i)*size.width/9 + 34, y: y), control: CGPoint(x: CGFloat(i)*size.width/9+8, y: y-5))
+            let y = water.minY + CGFloat(i % 3) * water.height/4 + water.height*0.18 + CGFloat(sin(game.elapsed * 1.8 + Double(i))) * 2
+            let x = CGFloat(i)*size.width/9 + CGFloat(sin(game.elapsed + Double(i))) * 14
+            var ripple = Path(); ripple.move(to: CGPoint(x: x - 18, y: y)); ripple.addQuadCurve(to: CGPoint(x: x + 34, y: y), control: CGPoint(x: x+8, y: y-5))
             context.stroke(ripple, with: .color(.white.opacity(0.35)), lineWidth: 1.5)
         }
 
@@ -25,6 +27,10 @@ enum LawnRenderer {
                 if (row + column).isMultiple(of: 2) {
                     context.fill(Path(rect), with: .color(Color(red: 0.92, green: 0.88, blue: 0.69).opacity(0.11)))
                 }
+                if (row * 7 + column * 3).isMultiple(of: 5) {
+                    let moss = CGRect(x: rect.minX + cw * 0.12, y: rect.minY + rh * 0.18, width: cw * 0.20, height: rh * 0.10)
+                    context.fill(Path(ellipseIn: moss), with: .color(Color(red: 0.12, green: 0.40, blue: 0.18).opacity(0.24)))
+                }
                 context.stroke(Path(rect), with: .color(.white.opacity(0.16)), lineWidth: 1)
                 drawGrassTuft(context: &context, at: CGPoint(x: rect.midX + cw * 0.25, y: rect.maxY - 5), scale: min(cw, rh) / 70)
                 let stone = CGRect(x: rect.midX-cw*0.23, y: rect.midY-rh*0.16, width: cw*0.46, height: rh*0.32)
@@ -33,11 +39,25 @@ enum LawnRenderer {
             }
         }
 
+        // Water lanes are visual garden channels; plants, peas, and enemies remain fully playable across them.
+        for row in game.waterLanes {
+            let channel = CGRect(x: 0, y: CGFloat(row) * rh + rh * 0.12, width: size.width, height: rh * 0.76)
+            context.fill(Path(channel), with: .linearGradient(Gradient(colors: [.cyan.opacity(0.24), .blue.opacity(0.34), .cyan.opacity(0.18)]), startPoint: .zero, endPoint: CGPoint(x: size.width, y: channel.maxY)))
+            for i in 0..<7 {
+                let x = CGFloat(i) * size.width / 6 + CGFloat(sin(game.elapsed * 2 + Double(i))) * 8
+                var ripple = Path()
+                ripple.move(to: CGPoint(x: x - 14, y: channel.midY + CGFloat(i % 2) * 10))
+                ripple.addQuadCurve(to: CGPoint(x: x + 18, y: channel.midY + CGFloat(i % 2) * 10), control: CGPoint(x: x + 2, y: channel.midY - 4))
+                context.stroke(ripple, with: .color(.white.opacity(0.42)), lineWidth: 1.4)
+            }
+            context.draw(Text("WATER LANE").font(.system(size: 9, weight: .black, design: .rounded)).foregroundStyle(.white.opacity(0.68)), at: CGPoint(x: size.width * 0.5, y: channel.minY + 11))
+        }
+
         drawToriiGate(context: &context, size: size, cellWidth: cw)
         drawBamboo(context: &context, x: size.width-cw*0.09, height: size.height, time: game.elapsed)
         for row in [0, 4] {
-            drawLantern(context: &context, at: CGPoint(x: cw*1.2, y: (CGFloat(row)+0.55)*rh), scale: min(cw,rh)/90)
-            drawLantern(context: &context, at: CGPoint(x: cw*7.8, y: (CGFloat(row)+0.55)*rh), scale: min(cw,rh)/90)
+            drawLantern(context: &context, at: CGPoint(x: cw*1.2, y: (CGFloat(row)+0.55)*rh), scale: min(cw,rh)/90, time: game.elapsed)
+            drawLantern(context: &context, at: CGPoint(x: cw*7.8, y: (CGFloat(row)+0.55)*rh), scale: min(cw,rh)/90, time: game.elapsed)
         }
         for i in 0..<18 {
             let drift = CGFloat((game.elapsed * (8 + Double(i%4))).truncatingRemainder(dividingBy: Double(size.width+40)))
@@ -50,6 +70,17 @@ enum LawnRenderer {
             let bob = sin(game.elapsed * 2.6 + Double(cell.column)) * 2.2
             let center = CGPoint(x: (CGFloat(cell.column) + 0.5) * cw, y: (CGFloat(cell.row) + 0.55) * rh + bob)
             drawPlant(context: &context, plant: plant, center: center, scale: min(cw, rh) / 82, time: game.elapsed)
+        }
+
+        if let tanuki = game.tanukiEvent {
+            let center = CGPoint(x: size.width * 0.50 + CGFloat(sin(game.elapsed * 7)) * 9,
+                                 y: (CGFloat(tanuki.row) + 0.48) * rh)
+            let r = min(cw, rh) * 0.19
+            context.fill(Path(ellipseIn: CGRect(x: center.x-r, y: center.y-r, width: r*2, height: r*2)), with: .color(.brown.opacity(0.95)))
+            context.fill(Path(ellipseIn: CGRect(x: center.x-r*0.72, y: center.y-r*0.52, width: r*0.30, height: r*0.24)), with: .color(.white))
+            context.fill(Path(ellipseIn: CGRect(x: center.x+r*0.42, y: center.y-r*0.52, width: r*0.30, height: r*0.24)), with: .color(.white))
+            context.fill(Path(ellipseIn: CGRect(x: center.x-r*0.18, y: center.y-r*0.12, width: r*0.36, height: r*0.28)), with: .color(.black))
+            context.draw(Text("TANUKI TRICK!  •  CARD DISGUISE").font(.system(size: 11, weight: .black, design: .rounded)).foregroundStyle(.yellow), at: CGPoint(x: size.width * 0.5, y: center.y - rh * 0.33))
         }
 
         for (cell, plant) in game.plants where plant.kind == .charmMushroom {
@@ -80,9 +111,10 @@ enum LawnRenderer {
             var trail = Path()
             trail.move(to: CGPoint(x: center.x - radius * 4.2, y: center.y))
             trail.addLine(to: CGPoint(x: center.x - radius, y: center.y))
-            let shotColor: Color = pea.icy ? .cyan : .green
+            let shotColor: Color = pea.flaming ? .orange : pea.icy ? .cyan : .green
             context.stroke(trail, with: .linearGradient(Gradient(colors: [.clear, shotColor.opacity(0.72)]), startPoint: CGPoint(x: center.x-radius*4, y: center.y), endPoint: center), style: StrokeStyle(lineWidth: radius * 0.8, lineCap: .round))
-            context.fill(Path(ellipseIn: CGRect(x: center.x-radius, y: center.y-radius, width: radius*2, height: radius*2)), with: .radialGradient(Gradient(colors: pea.icy ? [.white, .cyan, .blue] : [Color(red: 0.35, green: 0.85, blue: 0.20)]), center: center, startRadius: 0, endRadius: radius))
+            let peaColors: [Color] = pea.flaming ? (pea.steamed ? [.white, .orange, .cyan] : [.yellow, .orange, .red]) : pea.icy ? [.white, .cyan, .blue] : [Color(red: 0.35, green: 0.85, blue: 0.20)]
+            context.fill(Path(ellipseIn: CGRect(x: center.x-radius, y: center.y-radius, width: radius*2, height: radius*2)), with: .radialGradient(Gradient(colors: peaColors), center: center, startRadius: 0, endRadius: radius))
             context.fill(Path(ellipseIn: CGRect(x: center.x-radius*0.45, y: center.y-radius*0.55, width: radius*0.65, height: radius*0.55)), with: .color(.white.opacity(0.65)))
             context.stroke(Path(ellipseIn: CGRect(x: center.x-radius, y: center.y-radius, width: radius*2, height: radius*2)), with: .color(.black.opacity(0.25)), lineWidth: 1.5)
         }
@@ -214,11 +246,30 @@ enum LawnRenderer {
         context.stroke(path, with: .color(.green.opacity(0.42)), lineWidth: max(1, 1.4*scale))
     }
 
+    private static func drawDistantGarden(context: inout GraphicsContext, size: CGSize, time: Double) {
+        var mountain = Path()
+        mountain.move(to: CGPoint(x: 0, y: size.height * 0.22))
+        mountain.addLine(to: CGPoint(x: size.width * 0.20, y: size.height * 0.08))
+        mountain.addLine(to: CGPoint(x: size.width * 0.40, y: size.height * 0.22))
+        mountain.addLine(to: CGPoint(x: size.width * 0.62, y: size.height * 0.10))
+        mountain.addLine(to: CGPoint(x: size.width, y: size.height * 0.24))
+        mountain.addLine(to: CGPoint(x: size.width, y: 0))
+        mountain.addLine(to: CGPoint(x: 0, y: 0))
+        mountain.closeSubpath()
+        context.fill(mountain, with: .color(Color(red: 0.16, green: 0.34, blue: 0.29).opacity(0.34)))
+        for i in 0..<5 {
+            let x = size.width * (0.12 + CGFloat(i) * 0.19)
+            let y = size.height * (0.18 + CGFloat(i % 2) * 0.04)
+            let glow = 0.12 + 0.05 * (1 + sin(time * 2.2 + Double(i)))
+            context.fill(Path(ellipseIn: CGRect(x: x - 5, y: y - 5, width: 10, height: 10)), with: .radialGradient(Gradient(colors: [.yellow.opacity(glow), .clear]), center: CGPoint(x: x, y: y), startRadius: 0, endRadius: 12))
+        }
+    }
+
     private static func drawPlant(context: inout GraphicsContext, plant: Plant, center: CGPoint, scale baseScale: CGFloat, time: Double) {
         let entrance = min(1, max(0.08, plant.age / 0.28))
         let bounce = entrance < 1 ? 0.78 + CGFloat(sin(entrance * Double.pi)) * 0.35 : 1
         let s = baseScale * CGFloat(entrance) * bounce
-        let recoil = plant.kind == .peaShooter ? CGFloat(plant.recoil / 0.22) * 7*s : 0
+        let recoil = plant.kind == .peaShooter || plant.kind == .gatlingPeaShooter ? CGFloat(plant.recoil / 0.22) * 7*s : 0
         let center = CGPoint(x: center.x - recoil, y: center.y)
         if plant.age < 0.55 {
             let glow = baseScale * CGFloat(50 + plant.age * 35)
@@ -266,6 +317,10 @@ enum LawnRenderer {
             drawCharmMushroom(context: &context, center: center, scale: s, progress: max(0, min(1, 1 - plant.actionTimer)), time: time)
         case .icePeaShooter:
             drawIcePeaShooter(context: &context, center: center, scale: s, time: time)
+        case .flameStake:
+            drawFlameStake(context: &context, center: center, scale: s, time: time)
+        case .gatlingPeaShooter:
+            drawGatlingPeaShooter(context: &context, center: center, scale: s, time: time, burstShotsRemaining: plant.burstShotsRemaining)
         }
 
         if plant.freezeTimer > 0 {
@@ -283,7 +338,7 @@ enum LawnRenderer {
             context.draw(Text("🔥").font(.system(size: 14*s)).foregroundStyle(.orange.opacity(flame)), at: CGPoint(x: center.x+25*s, y: center.y-35*s))
         }
 
-        let maxHP: Double = plant.kind == .wallPlant ? 520 : plant.kind == .peaShooter || plant.kind == .icePeaShooter ? 125 : plant.kind == .redHotPepper ? 85 : plant.kind == .cornCannon ? 180 : plant.kind == .charmMushroom ? 90 : 100
+        let maxHP: Double = plant.kind == .wallPlant ? 520 : plant.kind == .peaShooter || plant.kind == .icePeaShooter ? 125 : plant.kind == .redHotPepper ? 85 : plant.kind == .cornCannon ? 180 : plant.kind == .charmMushroom ? 90 : plant.kind == .flameStake ? 180 : plant.kind == .gatlingPeaShooter ? 140 : 100
         let ratio = max(0, min(1, plant.hp / maxHP))
         let bar = CGRect(x: center.x-25*s, y: center.y+38*s, width: 50*s, height: 5*s)
         context.fill(Path(roundedRect: bar, cornerRadius: 2*s), with: .color(.black.opacity(0.25)))
@@ -388,11 +443,45 @@ enum LawnRenderer {
         context.draw(Text("ICE").font(.system(size: 7*s, weight: .black, design: .rounded)).foregroundStyle(.white), at: CGPoint(x: center.x, y: center.y+15*s))
     }
 
+    private static func drawFlameStake(context: inout GraphicsContext, center: CGPoint, scale s: CGFloat, time: Double) {
+        let wood = CGRect(x:center.x-12*s, y:center.y-35*s, width:24*s, height:72*s)
+        context.fill(Path(roundedRect:wood,cornerRadius:7*s),with:.linearGradient(Gradient(colors:[Color(red:0.36,green:0.16,blue:0.07),Color(red:0.64,green:0.30,blue:0.10)]),startPoint:wood.origin,endPoint:CGPoint(x:wood.maxX,y:wood.maxY)))
+        context.stroke(Path(roundedRect:wood,cornerRadius:7*s),with:.color(.brown),lineWidth:2*s)
+        for i in 0..<3 {
+            let x=center.x+CGFloat(i-1)*6*s
+            var flame=Path(); flame.move(to:CGPoint(x:x-8*s,y:center.y-26*s)); flame.addQuadCurve(to:CGPoint(x:x,y:center.y-57*s-CGFloat(sin(time*7+Double(i)))*5*s),control:CGPoint(x:x-2*s,y:center.y-43*s)); flame.addQuadCurve(to:CGPoint(x:x+8*s,y:center.y-26*s),control:CGPoint(x:x+4*s,y:center.y-41*s)); flame.closeSubpath()
+            context.fill(flame,with:.linearGradient(Gradient(colors:[.yellow,.orange,.red.opacity(0.65)]),startPoint:CGPoint(x:x,y:center.y-58*s),endPoint:CGPoint(x:x,y:center.y-24*s)))
+        }
+        context.draw(Text("FIRE").font(.system(size:7*s,weight:.black,design:.rounded)).foregroundStyle(.white),at:CGPoint(x:center.x,y:center.y+14*s))
+    }
+
+    private static func drawGatlingPeaShooter(context: inout GraphicsContext, center: CGPoint, scale s: CGFloat, time: Double, burstShotsRemaining: Int) {
+        let head = CGRect(x:center.x-24*s,y:center.y-30*s,width:46*s,height:42*s)
+        context.fill(Path(ellipseIn:head),with:.color(Color(red:0.20,green:0.68,blue:0.17)))
+        context.stroke(Path(ellipseIn:head),with:.color(.green.opacity(0.9)),lineWidth:2*s)
+        let base = CGPoint(x:center.x+14*s,y:center.y-8*s)
+        for i in 0..<4 {
+            let angle = time * 8 + Double(i) * Double.pi / 2
+            let end = CGPoint(x:base.x+CGFloat(cos(angle))*30*s,y:base.y+CGFloat(sin(angle))*30*s)
+            var barrel=Path(); barrel.move(to:base); barrel.addLine(to:end)
+            context.stroke(barrel,with:.color(Color(red:0.16,green:0.38,blue:0.12)),style:StrokeStyle(lineWidth:6*s,lineCap:.round))
+            context.fill(Path(ellipseIn:CGRect(x:end.x-4*s,y:end.y-4*s,width:8*s,height:8*s)),with:.color(.yellow.opacity(0.8)))
+        }
+        context.fill(Path(ellipseIn:CGRect(x:center.x-6*s,y:center.y-19*s,width:6*s,height:8*s)),with:.color(.black))
+        context.draw(Text("GATLING").font(.system(size:6*s,weight:.black,design:.rounded)).foregroundStyle(.white),at:CGPoint(x:center.x,y:center.y+15*s))
+        if burstShotsRemaining > 0 {
+            context.draw(Text("BURST \(burstShotsRemaining)").font(.system(size:7*s,weight:.black,design:.rounded)).foregroundStyle(.yellow),at:CGPoint(x:center.x,y:center.y-48*s))
+        }
+    }
+
     private static func drawZombie(context: inout GraphicsContext, zombie: Zombie, center: CGPoint, scale baseScale: CGFloat, gait: Double) {
         if zombie.slowTimer > 0 {
             let pulse = 34*baseScale + CGFloat(sin(zombie.age*8))*3*baseScale
             context.stroke(Path(ellipseIn:CGRect(x:center.x-pulse,y:center.y-pulse*0.7,width:pulse*2,height:pulse*1.4)), with:.color(.cyan.opacity(0.72)), style:StrokeStyle(lineWidth:3*baseScale,dash:[6,4]))
             context.draw(Text("SLOWED").font(.system(size: 7*baseScale, weight: .black, design: .rounded)).foregroundStyle(.cyan), at: CGPoint(x:center.x,y:center.y-70*baseScale))
+        }
+        if zombie.burnTimer > 0 {
+            context.draw(Text("🔥").font(.system(size: 14*baseScale)).foregroundStyle(.orange), at: CGPoint(x:center.x+30*baseScale, y:center.y-38*baseScale))
         }
         if zombie.kind == .hammerGiant {
             drawHammerGiant(context: &context, zombie: zombie, center: center, scale: baseScale, gait: gait)
@@ -700,12 +789,14 @@ enum LawnRenderer {
         }
     }
 
-    private static func drawLantern(context: inout GraphicsContext, at p: CGPoint, scale s: CGFloat) {
+    private static func drawLantern(context: inout GraphicsContext, at p: CGPoint, scale s: CGFloat, time: Double) {
         context.fill(Path(roundedRect:CGRect(x:p.x-5*s,y:p.y-6*s,width:10*s,height:35*s),cornerRadius:3*s),with:.color(Color(red:0.40,green:0.39,blue:0.35).opacity(0.7)))
         let roof=CGRect(x:p.x-18*s,y:p.y-18*s,width:36*s,height:10*s)
         context.fill(Path(roundedRect:roof,cornerRadius:4*s),with:.color(Color(red:0.26,green:0.25,blue:0.23)))
         let lamp=CGRect(x:p.x-12*s,y:p.y-9*s,width:24*s,height:19*s)
-        context.fill(Path(roundedRect:lamp,cornerRadius:4*s),with:.radialGradient(Gradient(colors:[.yellow.opacity(0.75),.orange.opacity(0.18)]),center:CGPoint(x:lamp.midX,y:lamp.midY),startRadius:0,endRadius:lamp.width))
+        let flicker = 0.62 + 0.12 * sin(time * 5 + p.x)
+        context.fill(Path(ellipseIn: CGRect(x: p.x - 30*s, y: p.y - 28*s, width: 60*s, height: 60*s)), with: .radialGradient(Gradient(colors: [.yellow.opacity(flicker * 0.22), .clear]), center: p, startRadius: 0, endRadius: 30*s))
+        context.fill(Path(roundedRect:lamp,cornerRadius:4*s),with:.radialGradient(Gradient(colors:[.yellow.opacity(flicker),.orange.opacity(0.18)]),center:CGPoint(x:lamp.midX,y:lamp.midY),startRadius:0,endRadius:lamp.width))
     }
 
     private static func drawMapleLeaf(context: inout GraphicsContext, at p: CGPoint, scale s: CGFloat, angle: Double) {

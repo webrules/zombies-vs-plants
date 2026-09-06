@@ -10,6 +10,8 @@ enum PlantKind: String, CaseIterable, Identifiable, Sendable {
     case cornCannon = "Corn Cannon"
     case charmMushroom = "Charm Mushroom"
     case icePeaShooter = "Ice Pea Shooter"
+    case flameStake = "Flame Stake"
+    case gatlingPeaShooter = "Gatling Pea Shooter"
 
     var id: Self { self }
     var cost: Int {
@@ -22,6 +24,8 @@ enum PlantKind: String, CaseIterable, Identifiable, Sendable {
         case .cornCannon: 300
         case .charmMushroom: 175
         case .icePeaShooter: 150
+        case .flameStake: 200
+        case .gatlingPeaShooter: 350
         }
     }
     var symbol: String {
@@ -34,6 +38,8 @@ enum PlantKind: String, CaseIterable, Identifiable, Sendable {
         case .cornCannon: "CORN"
         case .charmMushroom: "CHARM"
         case .icePeaShooter: "ICE"
+        case .flameStake: "STAKE"
+        case .gatlingPeaShooter: "GATLING"
         }
     }
 }
@@ -60,6 +66,12 @@ enum ZombieKind: Sendable, Equatable {
 
 struct GridCell: Hashable, Sendable { let row: Int; let column: Int }
 
+struct TanukiEvent: Sendable {
+    let row: Int
+    var remaining: Double
+    let disguise: PlantKind
+}
+
 struct Plant: Identifiable, Sendable {
     let id = UUID()
     let kind: PlantKind
@@ -71,6 +83,7 @@ struct Plant: Identifiable, Sendable {
     var freezeTimer: Double = 0
     var burnTimer: Double = 0
     var charmTargetID: UUID?
+    var burstShotsRemaining: Int = 0
 }
 
 struct Zombie: Identifiable, Sendable {
@@ -91,6 +104,7 @@ struct Zombie: Identifiable, Sendable {
     var danceBoostTimer: Double = 0
     var danceCooldown: Double = 2.5
     var slowTimer: Double = 0
+    var burnTimer: Double = 0
 }
 
 struct Pea: Identifiable, Sendable {
@@ -98,6 +112,8 @@ struct Pea: Identifiable, Sendable {
     let row: Int
     var x: Double
     let icy: Bool
+    var flaming = false
+    var steamed = false
     var age: Double = 0
 }
 
@@ -142,13 +158,34 @@ struct Spawn: Sendable {
 
 enum GamePhase: Sendable { case ready, playing, won, lost }
 
+enum Difficulty: String, CaseIterable, Identifiable, Sendable {
+    case hell = "Hell"
+    case hard = "Hard"
+    case normal = "Normal"
+    case easy = "Easy"
+
+    var id: Self { self }
+    var startingSunshine: Int { 3_000 }
+    var enemySpeedMultiplier: Double {
+        switch self { case .hell: 1.55; case .hard: 1.28; case .normal: 1.12; case .easy: 1.0 }
+    }
+    var subtitle: String {
+        switch self {
+        case .hell: "Extreme challenge · More enemies · 55% faster"
+        case .hard: "More enemies · 28% faster"
+        case .normal: "Balanced waves · 12% faster"
+        case .easy: "Fewer enemies · relaxed pace"
+        }
+    }
+}
+
 @MainActor
 final class GameModel: ObservableObject {
     static let rows = 5
     static let columns = 9
 
     @Published private(set) var phase: GamePhase = .ready
-    static let startingSunshine = 1_000
+    static let startingSunshine = 3_000
     static let cherryBossDamage = 300.0
     static let cherryCooldownDuration = 6.0
     static let pepperCooldownDuration = 8.0
@@ -158,6 +195,12 @@ final class GameModel: ObservableObject {
     static let icePeaCooldownDuration = 1.4
     static let icePeaDamage = 18.0
     static let icePeaSlowDuration = 3.5
+    static let flameStakeCooldownDuration = 0.0
+    static let flamePeaBonusDamage = 20.0
+    static let flamePeaBurnDuration = 2.0
+    static let gatlingCooldownDuration = 8.0
+    static let gatlingBurstSize = 5
+    static let gatlingShotInterval = 0.18
 
     @Published private(set) var sunshine = GameModel.startingSunshine
     @Published private(set) var elapsed = 0.0
@@ -171,6 +214,8 @@ final class GameModel: ObservableObject {
     @Published private(set) var pepperCooldown = 0.0
     @Published private(set) var cornCooldown = 0.0
     @Published private(set) var icePeaCooldown = 0.0
+    @Published private(set) var flameStakeCooldown = 0.0
+    @Published private(set) var gatlingCooldown = 0.0
     @Published private(set) var explosion: (cell: GridCell, remaining: Double)?
     @Published private(set) var pepperBurst: (row: Int, remaining: Double)?
     @Published private(set) var cornMissiles: [CornMissile] = []
@@ -181,19 +226,32 @@ final class GameModel: ObservableObject {
     @Published private(set) var pendingBomb: (cell: GridCell, remaining: Double)?
     @Published private(set) var waveBannerRemaining = 0.0
     @Published private(set) var screenShake = 0.0
+    @Published private(set) var waterLanes: Set<Int> = []
+    @Published private(set) var tanukiEvent: TanukiEvent?
     @Published var selectedPlant: PlantKind = .sunflower
+    @Published var selectedDifficulty: Difficulty = .easy
     @Published private(set) var cornPlacementMode = true
-    @Published var soundEnabled = true
+    @Published var soundEnabled = true {
+        didSet {
+            audio.setBackgroundMusicEnabled(soundEnabled)
+        }
+    }
 
     private var timer: Timer?
     private var lastTick = Date()
     private var nextSpawn = 0
     private var dancerSpawnCountsByWave = [Int](repeating: 0, count: 4)
+    private var tanukiTriggered = false
     private let audio = AudioSynth.shared
 
     static let maxDancerSamuraiPerWave = 5
+    static let allowedWaterLayouts: [Set<Int>] = [[], [1], [3], [1, 3], [0, 4]]
 
-    let schedule: [Spawn] = [
+    static func waterLanes(forSeed seed: UInt64) -> Set<Int> {
+        allowedWaterLayouts[Int(seed % UInt64(allowedWaterLayouts.count))]
+    }
+
+    private let baseSchedule: [Spawn] = [
         Spawn(time: 3, row: 2, kind: .regular),
         Spawn(time: 8, row: 0, kind: .regular),
         Spawn(time: 10, row: 1, kind: .dancerSamurai),
@@ -235,6 +293,23 @@ final class GameModel: ObservableObject {
         Spawn(time: 67, row: 0, kind: .thunderShogun)
     ]
 
+    /// Difficulty changes enemy pressure, never the player's starting resource pool.
+    var schedule: [Spawn] {
+        guard selectedDifficulty != .easy else { return baseSchedule }
+        let stride: Int
+        switch selectedDifficulty {
+        case .hell: stride = 2
+        case .hard: stride = 3
+        case .normal: stride = 5
+        case .easy: stride = 99
+        }
+        let extras = baseSchedule.enumerated().compactMap { index, spawn -> Spawn? in
+            guard index % stride == 0, !spawn.kind.isBoss, spawn.kind != .dancerSamurai else { return nil }
+            return Spawn(time: spawn.time + 0.45, row: (spawn.row + 2) % Self.rows, kind: spawn.kind)
+        }
+        return (baseSchedule + extras).sorted { $0.time < $1.time }
+    }
+
     var wave: Int {
         if elapsed < 27 { return 1 }
         if elapsed < 48 { return 2 }
@@ -249,8 +324,8 @@ final class GameModel: ObservableObject {
         }
     }
 
-    func start() {
-        resetState()
+    func start(seed: UInt64? = nil) {
+        resetState(seed: seed)
         phase = .playing
         lastTick = Date()
         timer?.invalidate()
@@ -259,17 +334,23 @@ final class GameModel: ObservableObject {
         }
     }
 
+    func pauseGame() {
+        guard phase == .playing, timer != nil else { return }
+        timer?.invalidate()
+        timer = nil
+    }
+
+    func resumeGame() {
+        guard phase == .playing, timer == nil else { return }
+        lastTick = Date()
+        timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.clockTick() }
+        }
+    }
+
     func togglePause() {
         guard phase == .playing else { return }
-        if timer == nil {
-            lastTick = Date()
-            timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
-                Task { @MainActor in self?.clockTick() }
-            }
-        } else {
-            timer?.invalidate()
-            timer = nil
-        }
+        if isPaused { resumeGame() } else { pauseGame() }
     }
 
     var isPaused: Bool { phase == .playing && timer == nil }
@@ -323,9 +404,22 @@ final class GameModel: ObservableObject {
             return
         }
         if kind == .icePeaShooter {
-            guard icePeaCooldown <= 0 else { audioIfEnabled(.error); return }
             sunshine -= kind.cost
+            icePeaCooldown = Self.icePeaCooldownDuration
             plants[cell] = Plant(kind: kind, hp: 125, actionTimer: 0.45)
+            audioIfEnabled(.plant)
+            return
+        }
+        if kind == .flameStake {
+            sunshine -= kind.cost
+            plants[cell] = Plant(kind: kind, hp: 180, actionTimer: 0)
+            audioIfEnabled(.stakePlant)
+            return
+        }
+        if kind == .gatlingPeaShooter {
+            sunshine -= kind.cost
+            gatlingCooldown = Self.gatlingCooldownDuration
+            plants[cell] = Plant(kind: kind, hp: 140, actionTimer: 0.55)
             audioIfEnabled(.plant)
             return
         }
@@ -339,6 +433,8 @@ final class GameModel: ObservableObject {
         case .cornCannon: 180
         case .charmMushroom: 90
         case .icePeaShooter: 125
+        case .flameStake: 180
+        case .gatlingPeaShooter: 140
         }
         plants[cell] = Plant(kind: kind, hp: hp, actionTimer: kind == .sunflower ? 2.5 : 0.4)
         audioIfEnabled(.plant)
@@ -359,6 +455,11 @@ final class GameModel: ObservableObject {
     }
 
 #if DEBUG
+    func triggerTanukiForTesting() {
+        tanukiTriggered = true
+        tanukiEvent = TanukiEvent(row: 2, remaining: 4.0, disguise: .sunflower)
+    }
+
     func addZombieForTesting(_ kind: ZombieKind, row: Int, x: Double) {
         zombies.append(Zombie(kind: kind, row: row, x: x, hp: kind.maxHP))
     }
@@ -369,6 +470,8 @@ final class GameModel: ObservableObject {
 
     func addIcePeaForTesting(row: Int, x: Double) { peas.append(Pea(row: row, x: x, icy: true)) }
 
+    func addPeaForTesting(row: Int, x: Double, icy: Bool = false) { peas.append(Pea(row: row, x: x, icy: icy)) }
+
     func spawnScheduledForTesting(until time: Double) {
         elapsed = time
         spawnDueZombies()
@@ -378,8 +481,11 @@ final class GameModel: ObservableObject {
     func charmForTesting(row: Int) -> Bool { triggerCharm(row: row, targetID: nil) }
 #endif
 
-    private func resetState() {
-        sunshine = Self.startingSunshine
+    private func resetState(seed: UInt64? = nil) {
+        sunshine = selectedDifficulty.startingSunshine
+        waterLanes = Self.waterLanes(forSeed: seed ?? UInt64(Date().timeIntervalSince1970 * 1_000))
+        tanukiEvent = nil
+        tanukiTriggered = false
         elapsed = 0
         plants = [:]
         zombies = []
@@ -391,6 +497,8 @@ final class GameModel: ObservableObject {
         pepperCooldown = 0
         cornCooldown = 0
         icePeaCooldown = 0
+        flameStakeCooldown = 0
+        gatlingCooldown = 0
         charmCooldown = 0
         explosion = nil
         pendingBomb = nil
@@ -420,7 +528,18 @@ final class GameModel: ObservableObject {
         pepperCooldown = max(0, pepperCooldown - dt)
         cornCooldown = max(0, cornCooldown - dt)
         icePeaCooldown = max(0, icePeaCooldown - dt)
+        flameStakeCooldown = max(0, flameStakeCooldown - dt)
+        gatlingCooldown = max(0, gatlingCooldown - dt)
         charmCooldown = max(0, charmCooldown - dt)
+        if var tanuki = tanukiEvent {
+            tanuki.remaining -= dt
+            tanukiEvent = tanuki.remaining > 0 ? tanuki : nil
+        } else if !tanukiTriggered, elapsed >= 12 {
+            tanukiTriggered = true
+            let row = Int(elapsed * 7) % Self.rows
+            tanukiEvent = TanukiEvent(row: row, remaining: 4.0, disguise: PlantKind.allCases[Int(elapsed) % PlantKind.allCases.count])
+            audioIfEnabled(.tanukiGiggle)
+        }
         waveBannerRemaining = max(0, waveBannerRemaining - dt)
         screenShake = max(0, screenShake - dt)
         if wave != oldWave { waveBannerRemaining = 2.2; audioIfEnabled(.wave) }
@@ -480,8 +599,20 @@ final class GameModel: ObservableObject {
                 peas.append(Pea(row: cell.row, x: Double(cell.column) + 0.72, icy: true))
                 plant.actionTimer = Self.icePeaCooldownDuration
                 plant.recoil = 0.22
-                icePeaCooldown = Self.icePeaCooldownDuration
                 audioIfEnabled(.icePeaShoot)
+            } else if plant.kind == .gatlingPeaShooter {
+                let hasTarget = zombies.contains(where: { $0.row == cell.row && $0.x > Double(cell.column) })
+                if plant.burstShotsRemaining > 0, plant.actionTimer <= 0 {
+                    peas.append(Pea(row: cell.row, x: Double(cell.column) + 0.72, icy: false))
+                    plant.burstShotsRemaining -= 1
+                    plant.actionTimer = plant.burstShotsRemaining > 0 ? Self.gatlingShotInterval : 0
+                    plant.recoil = 0.16
+                    audioIfEnabled(.gatlingShoot)
+                } else if plant.burstShotsRemaining == 0, plant.actionTimer <= 0,
+                          gatlingCooldown <= 0, hasTarget {
+                    plant.burstShotsRemaining = Self.gatlingBurstSize
+                    plant.actionTimer = 0
+                }
             } else if plant.kind == .redHotPepper, plant.actionTimer <= 0 {
                 triggerPepper(row: cell.row)
                 consumed = true
@@ -497,7 +628,19 @@ final class GameModel: ObservableObject {
             else { plants[cell] = plant }
         }
 
-        for index in peas.indices { peas[index].x += 3.25 * dt; peas[index].age += dt }
+        for index in peas.indices {
+            peas[index].x += 3.25 * dt
+            peas[index].age += dt
+            let crossedStake = plants.filter({ entry in
+                entry.value.kind == .flameStake && entry.key.row == peas[index].row && peas[index].x >= Double(entry.key.column) + 0.15
+            }).max(by: { $0.key.column < $1.key.column })
+            if !peas[index].flaming, let stake = crossedStake {
+                peas[index].flaming = true
+                peas[index].steamed = peas[index].icy
+                addFlameConversionParticles(at: stake.key)
+                audioIfEnabled(.flameConvert)
+            }
+        }
         var cornImpacts: [CornMissile] = []
         for index in cornMissiles.indices {
             cornMissiles[index].progress += dt / 1.15
@@ -536,15 +679,25 @@ final class GameModel: ObservableObject {
         particles.removeAll { $0.age > $0.life }
         var hitPeas = Set<UUID>()
         for zi in zombies.indices {
+            zombies[zi].burnTimer = max(0, zombies[zi].burnTimer - dt)
+            if zombies[zi].burnTimer > 0 {
+                zombies[zi].hp -= 8 * dt
+                zombies[zi].hitFlash = max(zombies[zi].hitFlash, 0.04)
+            }
             if let pea = peas.filter({ $0.row == zombies[zi].row && !hitPeas.contains($0.id) })
                 .min(by: { abs($0.x - zombies[zi].x) < abs($1.x - zombies[zi].x) }),
                abs(pea.x - zombies[zi].x) < 0.14 {
-                zombies[zi].hp -= pea.icy ? Self.icePeaDamage : 20
+                zombies[zi].hp -= (pea.icy ? Self.icePeaDamage : 20) + (pea.flaming ? Self.flamePeaBonusDamage : 0)
                 if pea.icy {
                     zombies[zi].slowTimer = Self.icePeaSlowDuration
                     addIceImpactParticles(at: GridCell(row: zombies[zi].row, column: max(0, min(Self.columns - 1, Int(zombies[zi].x)))))
                     addSteamParticles(at: GridCell(row: zombies[zi].row, column: max(0, min(Self.columns - 1, Int(zombies[zi].x)))))
                     audioIfEnabled(.icePeaHit)
+                }
+                if pea.flaming {
+                    zombies[zi].burnTimer = Self.flamePeaBurnDuration
+                    addFlameParticles(at: GridCell(row: zombies[zi].row, column: max(0, min(Self.columns - 1, Int(zombies[zi].x)))))
+                    audioIfEnabled(.flamePeaHit)
                 }
                 zombies[zi].hitFlash = 0.13
                 hitPeas.insert(pea.id)
@@ -686,7 +839,7 @@ final class GameModel: ObservableObject {
                 if zombies[zi].kind != .iceDoctor && zombies[zi].kind != .thunderShogun { zombies[zi].strikeCharge = 0 }
                 let danceSpeed = zombies[zi].kind == .dancerSamurai && zombies[zi].danceBoostTimer > 0 ? 1.55 : 1.0
                 let slowMultiplier = zombies[zi].slowTimer > 0 ? 0.52 : 1.0
-                zombies[zi].x -= zombies[zi].kind.speed * danceSpeed * slowMultiplier * dt
+                zombies[zi].x -= zombies[zi].kind.speed * selectedDifficulty.enemySpeedMultiplier * danceSpeed * slowMultiplier * dt
             }
         }
 
@@ -841,6 +994,14 @@ final class GameModel: ObservableObject {
             let angle = Double(i) * Double.pi * 2 / 18
             particles.append(BurstParticle(cell: cell, vx: cos(angle) * 0.32,
                                            vy: sin(angle) * 0.32 - 0.18, life: 0.5, colorIndex: i.isMultiple(of: 2) ? 5 : 2))
+        }
+    }
+
+    private func addFlameConversionParticles(at cell: GridCell) {
+        for i in 0..<10 {
+            let angle = Double(i) * Double.pi * 2 / 10
+            particles.append(BurstParticle(cell: cell, vx: cos(angle) * 0.22,
+                                           vy: sin(angle) * 0.22 - 0.10, life: 0.38, colorIndex: i.isMultiple(of: 2) ? 5 : 7))
         }
     }
 

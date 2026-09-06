@@ -3,6 +3,18 @@ import XCTest
 
 @MainActor
 final class GameModelTests: XCTestCase {
+    func testPauseAndResumeControlsGameTimerState() {
+        let game = GameModel()
+        game.start()
+        XCTAssertFalse(game.isPaused)
+        game.pauseGame()
+        XCTAssertTrue(game.isPaused)
+        game.resumeGame()
+        XCTAssertFalse(game.isPaused)
+        game.pauseGame()
+        XCTAssertTrue(game.isPaused)
+    }
+
     func testPlantingSpendsSunshineAndOccupiesCell() {
         let game = GameModel()
         game.soundEnabled = false
@@ -10,7 +22,7 @@ final class GameModelTests: XCTestCase {
         game.togglePause()
         game.selectedPlant = .peaShooter
         game.plant(at: GridCell(row: 2, column: 1))
-        XCTAssertEqual(game.sunshine, 900)
+        XCTAssertEqual(game.sunshine, 2_900)
         XCTAssertEqual(game.plants[GridCell(row: 2, column: 1)]?.kind, .peaShooter)
     }
 
@@ -23,7 +35,7 @@ final class GameModelTests: XCTestCase {
         game.selectedPlant = .sunflower
         game.plant(at: cell)
         game.plant(at: cell)
-        XCTAssertEqual(game.sunshine, 950)
+        XCTAssertEqual(game.sunshine, 2_950)
         XCTAssertEqual(game.plants.count, 1)
     }
 
@@ -135,15 +147,19 @@ final class GameModelTests: XCTestCase {
         game.soundEnabled = false
         game.start()
         game.togglePause()
-        game.addZombieForTesting(.regular, row: 2, x: 4)
+        game.addZombieForTesting(.regular, row: 2, x: 2.8)
         game.selectPlant(.icePeaShooter)
         let cell = GridCell(row: 2, column: 1)
         game.plant(at: cell)
-        XCTAssertEqual(game.sunshine, 850)
+        XCTAssertEqual(game.sunshine, 2_850)
         XCTAssertEqual(game.plants[cell]?.kind, .icePeaShooter)
+        game.plant(at: GridCell(row: 2, column: 0))
+        XCTAssertEqual(game.sunshine, 2_700, "Ice Pea Shooters should have no planting cooldown")
+        XCTAssertNotNil(game.plants[GridCell(row: 2, column: 0)])
         game.advanceForTesting(0.5)
         XCTAssertTrue(game.peas.contains { $0.icy }, "Ice Pea should create a distinct projectile")
-        game.advanceForTesting(0.7)
+        if let x = game.zombies.first?.x { game.addIcePeaForTesting(row: 2, x: x) }
+        game.advanceForTesting(0.1)
         XCTAssertLessThan(game.zombies.first?.hp ?? 100, 100)
         XCTAssertGreaterThan(game.zombies.first?.slowTimer ?? 0, 3)
         XCTAssertGreaterThan(game.icePeaCooldown, 0)
@@ -165,6 +181,83 @@ final class GameModelTests: XCTestCase {
             game.advanceForTesting(0.1)
             XCTAssertGreaterThan(game.zombies.first?.slowTimer ?? 0, 3.2, "A second hit should refresh \(kind.title)'s slow")
         }
+    }
+
+    func testFlameStakePlacementCooldownAndProjectileConversion() {
+        let game = GameModel()
+        game.soundEnabled = false
+        game.start()
+        game.togglePause()
+        game.addZombieForTesting(.regular, row: 2, x: 5)
+        game.selectPlant(.peaShooter)
+        game.plant(at: GridCell(row: 2, column: 1))
+        game.selectPlant(.flameStake)
+        let stakeCell = GridCell(row: 2, column: 2)
+        game.plant(at: stakeCell)
+        XCTAssertEqual(game.sunshine, 2_700)
+        XCTAssertEqual(game.plants[stakeCell]?.kind, .flameStake)
+        XCTAssertEqual(game.flameStakeCooldown, GameModel.flameStakeCooldownDuration, accuracy: 0.01)
+        game.plant(at: GridCell(row: 2, column: 3))
+        XCTAssertNotNil(game.plants[GridCell(row: 2, column: 3)], "Stake countdown must not block immediate second placement")
+        XCTAssertEqual(game.sunshine, 2_500)
+
+        game.advanceForTesting(0.7)
+        XCTAssertTrue(game.peas.contains { $0.flaming }, "A pea crossing the stake must become flaming")
+        game.advanceForTesting(0.8)
+        XCTAssertLessThan(game.zombies.first?.hp ?? 100, 100)
+        XCTAssertGreaterThan(game.zombies.first?.burnTimer ?? 0, 0)
+    }
+
+    func testFlameStakeTurnsIcePeaIntoSteamFlameWhileRetainingSlow() {
+        let game = GameModel()
+        game.soundEnabled = false
+        game.start()
+        game.togglePause()
+        game.selectPlant(.flameStake)
+        let stakeCell = GridCell(row: 0, column: 2)
+        game.plant(at: stakeCell)
+        game.addZombieForTesting(.bucketHead, row: 0, x: 3.5)
+        game.addIcePeaForTesting(row: 0, x: 1.9)
+        game.advanceForTesting(0.1)
+        XCTAssertTrue(game.peas.first?.flaming ?? false)
+        XCTAssertTrue(game.peas.first?.steamed ?? false)
+        game.advanceForTesting(0.35)
+        XCTAssertGreaterThan(game.zombies.first?.slowTimer ?? 0, 3)
+        XCTAssertGreaterThan(game.zombies.first?.burnTimer ?? 0, 0)
+    }
+
+    func testGatlingPeaShooterRapidBurstHasDamageAndNoPlantingCooldown() {
+        let game = GameModel()
+        game.soundEnabled = false
+        game.start()
+        game.togglePause()
+        game.addZombieForTesting(.hammerGiant, row: 2, x: 8)
+        game.selectPlant(.gatlingPeaShooter)
+        let first = GridCell(row: 2, column: 1)
+        game.plant(at: first)
+        game.plant(at: GridCell(row: 2, column: 0))
+        XCTAssertEqual(game.sunshine, 2_300, "Gatling Pea Shooters should be placeable back-to-back")
+        XCTAssertEqual(game.gatlingCooldown, GameModel.gatlingCooldownDuration, accuracy: 0.01)
+        game.advanceForTesting(2.0)
+        XCTAssertTrue(game.plants[first]?.burstShotsRemaining ?? 0 < GameModel.gatlingBurstSize, "Gatling should advance through a rapid multi-pea burst")
+        if let x = game.zombies.first?.x { game.addPeaForTesting(row: 2, x: x) }
+        game.advanceForTesting(0.1)
+        XCTAssertLessThan(game.zombies.first?.hp ?? 900, 900, "Burst peas should damage a boss")
+    }
+
+    func testGatlingProjectilesPassThroughFlameStake() {
+        let game = GameModel()
+        game.soundEnabled = false
+        game.start()
+        game.togglePause()
+        game.addZombieForTesting(.regular, row: 1, x: 8)
+        game.selectPlant(.gatlingPeaShooter)
+        game.plant(at: GridCell(row: 1, column: 1))
+        game.selectPlant(.flameStake)
+        game.plant(at: GridCell(row: 1, column: 2))
+        game.addPeaForTesting(row: 1, x: 1.9)
+        game.advanceForTesting(0.9)
+        XCTAssertTrue(game.peas.contains { $0.flaming }, "Gatling peas should use the same Flame Stake conversion")
     }
 
     func testFlameGiantTelegraphsBurnsAndIsCharmable() {
@@ -209,12 +302,86 @@ final class GameModelTests: XCTestCase {
         XCTAssertEqual(game.iceOrbs.count, 1)
     }
 
-    func testNewGameStartsWithOneThousandSunshine() {
+    func testNewGameDefaultsToEasyThreeThousandSunshine() {
         let game = GameModel()
         game.soundEnabled = false
         game.start()
         game.togglePause()
-        XCTAssertEqual(game.sunshine, 1_000)
+        XCTAssertEqual(game.sunshine, 3_000)
+    }
+
+    func testDifficultySelectsStartingSunshine() {
+        let game = GameModel()
+        game.soundEnabled = false
+        game.selectedDifficulty = .hard
+        game.start()
+        game.togglePause()
+        XCTAssertEqual(game.sunshine, 3_000)
+
+        game.selectedDifficulty = .normal
+        game.start()
+        game.togglePause()
+        XCTAssertEqual(game.sunshine, 3_000)
+
+        game.selectedDifficulty = .easy
+        game.start()
+        game.togglePause()
+        XCTAssertEqual(game.sunshine, 3_000)
+    }
+
+    func testDifficultyChangesEnemyPressureAndSpeed() {
+        XCTAssertEqual(Difficulty.easy.startingSunshine, 3_000)
+        XCTAssertEqual(Difficulty.normal.startingSunshine, 3_000)
+        XCTAssertEqual(Difficulty.hard.startingSunshine, 3_000)
+        XCTAssertEqual(Difficulty.hell.startingSunshine, 3_000)
+        XCTAssertGreaterThan(Difficulty.normal.enemySpeedMultiplier, Difficulty.easy.enemySpeedMultiplier)
+        XCTAssertGreaterThan(Difficulty.hard.enemySpeedMultiplier, Difficulty.normal.enemySpeedMultiplier)
+        XCTAssertGreaterThan(Difficulty.hell.enemySpeedMultiplier, Difficulty.hard.enemySpeedMultiplier)
+
+        let easy = GameModel()
+        easy.selectedDifficulty = .easy
+        let normal = GameModel()
+        normal.selectedDifficulty = .normal
+        let hard = GameModel()
+        hard.selectedDifficulty = .hard
+        let hell = GameModel()
+        hell.selectedDifficulty = .hell
+        XCTAssertEqual(easy.schedule.count, 39)
+        XCTAssertGreaterThan(normal.schedule.count, easy.schedule.count)
+        XCTAssertGreaterThan(hard.schedule.count, normal.schedule.count)
+        XCTAssertGreaterThan(hell.schedule.count, hard.schedule.count)
+        XCTAssertLessThanOrEqual(hell.schedule.count, 60, "Hell should remain a bounded, performance-safe schedule")
+    }
+
+    func testWaterLaneLayoutsAreDeterministicBoundedAndPlayable() {
+        for seed in 0..<32 {
+            let lanes = GameModel.waterLanes(forSeed: UInt64(seed))
+            XCTAssertTrue(lanes.allSatisfy { (0..<GameModel.rows).contains($0) })
+            XCTAssertLessThanOrEqual(lanes.count, 2)
+            XCTAssertEqual(lanes, GameModel.waterLanes(forSeed: UInt64(seed)))
+        }
+        let game = GameModel()
+        game.soundEnabled = false
+        game.start(seed: 3)
+        game.togglePause()
+        XCTAssertEqual(game.waterLanes, GameModel.waterLanes(forSeed: 3))
+        game.selectedPlant = .peaShooter
+        game.plant(at: GridCell(row: game.waterLanes.first ?? 0, column: 0))
+        XCTAssertEqual(game.plants.count, 1, "Water lanes remain plantable and do not block required interactions")
+    }
+
+    func testTanukiEventAppearsExpiresAndDoesNotChangeResources() {
+        let game = GameModel()
+        game.soundEnabled = false
+        game.start(seed: 1)
+        game.togglePause()
+        let initialSunshine = game.sunshine
+        game.triggerTanukiForTesting()
+        XCTAssertNotNil(game.tanukiEvent)
+        XCTAssertEqual(game.sunshine, initialSunshine)
+        game.advanceForTesting(4.1)
+        XCTAssertNil(game.tanukiEvent)
+        XCTAssertEqual(game.sunshine, initialSunshine)
     }
 
     func testRedHotPepperClearsOrdinaryLaneAndDamagesBosses() {
@@ -228,7 +395,7 @@ final class GameModelTests: XCTestCase {
         game.selectedPlant = .redHotPepper
         let cell = GridCell(row: 2, column: 0)
         game.plant(at: cell)
-        XCTAssertEqual(game.sunshine, 875)
+        XCTAssertEqual(game.sunshine, 2_875)
         game.advanceForTesting(0.65)
         XCTAssertTrue(game.zombies.contains { $0.kind == .regular }, "The warning phase should be readable")
         game.advanceForTesting(0.45)
@@ -254,7 +421,7 @@ final class GameModelTests: XCTestCase {
         let target = GridCell(row: 2, column: 3)
         game.plant(at: cannonCell)
         XCTAssertFalse(game.cornPlacementMode)
-        XCTAssertEqual(game.sunshine, 700)
+        XCTAssertEqual(game.sunshine, 2_700)
 
         game.plant(at: target)
         XCTAssertEqual(game.cornMissiles.count, 1)
@@ -302,7 +469,7 @@ final class GameModelTests: XCTestCase {
         game.selectPlant(.charmMushroom)
         let mushroomCell = GridCell(row: 2, column: 1)
         game.plant(at: mushroomCell)
-        XCTAssertEqual(game.sunshine, 825)
+        XCTAssertEqual(game.sunshine, 2_825)
         XCTAssertEqual(game.charmCooldown, GameModel.charmMushroomCooldownDuration, accuracy: 0.01)
         XCTAssertNotNil(game.plants[mushroomCell]?.charmTargetID)
 

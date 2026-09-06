@@ -27,6 +27,20 @@ struct ContentView: View {
                                 .padding(.horizontal, 12).padding(.vertical, 5)
                                 .background(.white.opacity(0.72), in: Capsule())
                         }
+                        if game.selectedPlant == .flameStake {
+                            Text("FLAME STAKE: peas passing through gain fire; Ice Peas become steam-flame shots.")
+                                .font(.caption.weight(.black))
+                                .foregroundStyle(.orange)
+                                .padding(.horizontal, 12).padding(.vertical, 5)
+                                .background(.white.opacity(0.72), in: Capsule())
+                        }
+                        if game.selectedPlant == .gatlingPeaShooter {
+                            Text("GATLING: five rapid peas per burst; high cost, 8-second cooldown.")
+                                .font(.caption.weight(.black))
+                                .foregroundStyle(.green)
+                                .padding(.horizontal, 12).padding(.vertical, 5)
+                                .background(.white.opacity(0.72), in: Capsule())
+                        }
                         GameBoard(game: game)
                             .aspectRatio(9.0 / 5.0, contentMode: .fit)
                             .background(.black.opacity(0.1))
@@ -74,6 +88,8 @@ struct ContentView: View {
                 Button(game.isPaused ? "Resume" : "Pause") { game.togglePause() }
                     .buttonStyle(.borderedProminent)
                     .tint(.brown)
+                    .keyboardShortcut("p", modifiers: [])
+                    .help("Pause or resume the game (P)")
             }
         }
     }
@@ -84,19 +100,26 @@ struct ContentView: View {
                 .font(.title2.bold())
                 .foregroundStyle(.orange)
                 .padding(.vertical, 8)
-            ForEach(PlantKind.allCases) { kind in
-                Button { game.selectPlant(kind) } label: {
-                    PlantCard(kind: kind, selected: game.selectedPlant == kind,
-                              affordable: game.sunshine >= kind.cost,
-                              cooldown: kind == .cherryBomb ? game.cherryCooldown : kind == .redHotPepper ? game.pepperCooldown : kind == .cornCannon ? game.cornCooldown : kind == .charmMushroom ? game.charmCooldown : kind == .icePeaShooter ? game.icePeaCooldown : 0,
-                              cooldownDuration: kind == .redHotPepper ? GameModel.pepperCooldownDuration : kind == .cornCannon ? GameModel.cornCannonCooldownDuration : kind == .charmMushroom ? GameModel.charmMushroomCooldownDuration : kind == .icePeaShooter ? GameModel.icePeaCooldownDuration : GameModel.cherryCooldownDuration,
-                              animationTime: game.elapsed)
+            ScrollView(.vertical) {
+                LazyVStack(spacing: 10) {
+                    ForEach(PlantKind.allCases) { kind in
+                        Button { game.selectPlant(kind) } label: {
+                            PlantCard(kind: kind, selected: game.selectedPlant == kind,
+                                      affordable: game.sunshine >= kind.cost,
+                                      cooldown: kind == .cherryBomb ? game.cherryCooldown : kind == .redHotPepper ? game.pepperCooldown : kind == .cornCannon ? game.cornCooldown : kind == .charmMushroom ? game.charmCooldown : kind == .icePeaShooter ? game.icePeaCooldown : kind == .gatlingPeaShooter ? game.gatlingCooldown : 0,
+                                      cooldownDuration: kind == .redHotPepper ? GameModel.pepperCooldownDuration : kind == .cornCannon ? GameModel.cornCannonCooldownDuration : kind == .charmMushroom ? GameModel.charmMushroomCooldownDuration : kind == .icePeaShooter ? GameModel.icePeaCooldownDuration : kind == .gatlingPeaShooter ? GameModel.gatlingCooldownDuration : GameModel.cherryCooldownDuration,
+                                      animationTime: game.elapsed)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(game.phase != .playing)
+                    }
                 }
-                .buttonStyle(.plain)
-                .disabled(game.phase != .playing)
+                .padding(.vertical, 2)
             }
+            .scrollIndicators(.visible)
+            .frame(minHeight: 500, maxHeight: .infinity)
             Spacer(minLength: 0)
-            Text("GARDEN NOTE\nStart with 1,000 sunshine.\nCharm all but Thunder.")
+            Text("GARDEN NOTE\nDifficulty sets starting sunshine.\nCharm all but Thunder.")
                 .font(.caption.bold())
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.white.opacity(0.92))
@@ -105,6 +128,7 @@ struct ContentView: View {
         }
         .padding(10)
         .frame(width: 150)
+        .frame(minHeight: 620, maxHeight: .infinity)
         .background(LinearGradient(colors:[Color(red:0.48,green:0.07,blue:0.10),Color(red:0.24,green:0.07,blue:0.10)],startPoint:.top,endPoint:.bottom), in: RoundedRectangle(cornerRadius: 16))
         .overlay(RoundedRectangle(cornerRadius: 16).stroke(.yellow.opacity(0.55), lineWidth: 2))
     }
@@ -154,6 +178,13 @@ struct ContentView: View {
                     .padding(.horizontal, 8).padding(.vertical, 3)
                     .background(.orange, in: Capsule())
             }
+            if let tanuki = game.tanukiEvent {
+                Text("TANUKI TRICK \(Int(ceil(tanuki.remaining)))s")
+                    .font(.caption.weight(.black))
+                    .foregroundStyle(.black)
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(.yellow, in: Capsule())
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 9)
@@ -187,6 +218,51 @@ struct ContentView: View {
                         .font(.title3.weight(.semibold))
                         .foregroundStyle(.white)
                         .multilineTextAlignment(.center)
+                    if game.phase == .ready {
+                        VStack(spacing: 10) {
+                            Text("CHOOSE YOUR PATH")
+                                .font(.caption.weight(.black))
+                                .tracking(2)
+                                .foregroundStyle(.yellow)
+                            Text("Garden Difficulty")
+                                .font(.title2.weight(.black))
+                                .foregroundStyle(.white)
+                            Text("Every path begins with 3,000 sunshine")
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(.white.opacity(0.75))
+                            ForEach(Difficulty.allCases) { difficulty in
+                                Button {
+                                    game.selectedDifficulty = difficulty
+                                } label: {
+                                    HStack(spacing: 12) {
+                                        Image(systemName: difficulty == .hard ? "flame.fill" : difficulty == .normal ? "leaf.fill" : "sparkles")
+                                            .font(.title3)
+                                            .frame(width: 28)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(difficulty.rawValue)
+                                                .font(.headline.weight(.bold))
+                                            Text(difficulty.subtitle)
+                                                .font(.caption)
+                                                .foregroundStyle(.white.opacity(0.78))
+                                        }
+                                        Spacer()
+                                        if game.selectedDifficulty == difficulty {
+                                            Image(systemName: "checkmark.circle.fill")
+                                                .foregroundStyle(.yellow)
+                                        }
+                                    }
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 11)
+                                    .frame(maxWidth: 430, alignment: .leading)
+                                    .background(game.selectedDifficulty == difficulty ? Color.red.opacity(0.72) : Color.black.opacity(0.22), in: RoundedRectangle(cornerRadius: 14))
+                                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(game.selectedDifficulty == difficulty ? .yellow.opacity(0.9) : .white.opacity(0.18), lineWidth: game.selectedDifficulty == difficulty ? 2 : 1))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .frame(maxWidth: 430)
+                    }
                     Button(game.phase == .ready ? "Start Level" : "Play Again") { game.start() }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.large)
@@ -247,6 +323,8 @@ private struct PlantCard: View {
         case .cornCannon: Color(red: 0.83, green: 0.60, blue: 0.08)
         case .charmMushroom: Color(red: 0.55, green: 0.20, blue: 0.68)
         case .icePeaShooter: Color(red: 0.18, green: 0.62, blue: 0.92)
+        case .flameStake: Color(red: 0.84, green: 0.28, blue: 0.08)
+        case .gatlingPeaShooter: Color(red: 0.18, green: 0.48, blue: 0.20)
         }
     }
 }

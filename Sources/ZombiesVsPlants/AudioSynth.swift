@@ -1,14 +1,20 @@
 import AppKit
 import Foundation
 
-enum SoundEffect: CaseIterable { case shoot, sunshine, explosion, win, loss, plant, error, fuse, wave, giantReady, giantStrike, iceCharge, iceLaunch, iceHit, icePeaShoot, icePeaHit, doctorArrival, flameArrival, flameReady, flameStrike, pepperFuse, pepperBlast, pepperHit, cornLoad, cornLaunch, cornImpact, thunderArrival, thunderCharge, thunderStrike, charmCharge, charmCast, charmEnd, allyStrike, danceBeat }
+enum SoundEffect: CaseIterable { case shoot, sunshine, explosion, win, loss, plant, error, fuse, wave, giantReady, giantStrike, iceCharge, iceLaunch, iceHit, icePeaShoot, icePeaHit, doctorArrival, flameArrival, flameReady, flameStrike, flamePeaHit, flameConvert, stakePlant, gatlingShoot, pepperFuse, pepperBlast, pepperHit, cornLoad, cornLaunch, cornImpact, thunderArrival, thunderCharge, thunderStrike, charmCharge, charmCast, charmEnd, allyStrike, danceBeat, tanukiGiggle }
 
 @MainActor
 final class AudioSynth {
     static let shared = AudioSynth()
     private var sounds: [SoundEffect: NSSound] = [:]
+    private var backgroundMusic: NSSound?
 
     private init() {
+        backgroundMusic = NSSound(data: makeMarch())
+        backgroundMusic?.loops = true
+        backgroundMusic?.volume = 0.12
+        backgroundMusic?.play()
+
         sounds[.shoot] = makeSound(notes: [(520, 0.05), (300, 0.04)], volume: 0.2)
         sounds[.sunshine] = makeSound(notes: [(660, 0.08), (880, 0.12)], volume: 0.18)
         sounds[.explosion] = makeNoise(duration: 0.45, volume: 0.36)
@@ -29,6 +35,10 @@ final class AudioSynth {
         sounds[.flameArrival] = makeSound(notes: [(120, 0.14), (170, 0.14), (245, 0.24)], volume: 0.25)
         sounds[.flameReady] = makeSound(notes: [(150, 0.13), (190, 0.16), (260, 0.22)], volume: 0.22)
         sounds[.flameStrike] = makeNoise(duration: 0.3, volume: 0.36)
+        sounds[.flamePeaHit] = makeSound(notes: [(240, 0.05), (360, 0.08), (520, 0.08)], volume: 0.20)
+        sounds[.flameConvert] = makeSound(notes: [(420, 0.04), (620, 0.06), (840, 0.10)], volume: 0.16)
+        sounds[.stakePlant] = makeSound(notes: [(180, 0.08), (260, 0.08), (390, 0.12)], volume: 0.16)
+        sounds[.gatlingShoot] = makeSound(notes: [(360, 0.035), (460, 0.035), (560, 0.045)], volume: 0.14)
         sounds[.pepperFuse] = makeSound(notes: [(180, 0.08), (220, 0.08), (280, 0.10)], volume: 0.15)
         sounds[.pepperBlast] = makeNoise(duration: 0.32, volume: 0.34)
         sounds[.pepperHit] = makeSound(notes: [(420, 0.06), (620, 0.08)], volume: 0.18)
@@ -43,11 +53,60 @@ final class AudioSynth {
         sounds[.charmEnd] = makeSound(notes: [(660, 0.08), (440, 0.12)], volume: 0.12)
         sounds[.allyStrike] = makeSound(notes: [(180, 0.04), (250, 0.06)], volume: 0.14)
         sounds[.danceBeat] = makeSound(notes: [(180, 0.05), (280, 0.05), (180, 0.05)], volume: 0.14)
+        sounds[.tanukiGiggle] = makeSound(notes: [(520, 0.06), (760, 0.06), (980, 0.10), (680, 0.12)], volume: 0.16)
     }
 
     func play(_ effect: SoundEffect) {
         sounds[effect]?.stop()
         sounds[effect]?.play()
+    }
+
+    func setBackgroundMusicEnabled(_ enabled: Bool) {
+        if enabled {
+            if backgroundMusic?.isPlaying != true {
+                backgroundMusic?.play()
+            }
+        } else {
+            backgroundMusic?.stop()
+        }
+    }
+
+    private func makeMarch() -> Data {
+        let rate = 11_025
+        let beat = 60.0 / 112.0
+        let bars = 32
+        let duration = beat * 4 * Double(bars)
+        let count = Int(duration * Double(rate))
+        // Original minor-key military march palette: broad brass-like tones over a firm parade bass.
+        let melody: [Double] = [293.66, 293.66, 349.23, 392.00, 440.00, 392.00, 349.23, 293.66]
+        let bass: [Double] = [146.83, 146.83, 146.83, 110.00, 130.81, 130.81, 146.83, 146.83]
+        var samples = [Int16]()
+        samples.reserveCapacity(count)
+
+        for index in 0..<count {
+            let time = Double(index) / Double(rate)
+            let eighth = Int(time / (beat / 2))
+            let noteIndex = (eighth / 2) % melody.count
+            let noteTime = time.truncatingRemainder(dividingBy: beat)
+            let noteProgress = noteTime / beat
+            let melodyEnvelope = min(1.0, noteProgress * 24) * pow(1 - noteProgress, 1.4)
+            let bassNote = bass[(eighth / 8) % bass.count]
+            let bassProgress = (time.truncatingRemainder(dividingBy: beat * 2)) / (beat * 2)
+            let bassEnvelope = min(1.0, bassProgress * 12) * pow(1 - bassProgress, 1.1)
+            let melodyTone = sin(2 * Double.pi * melody[noteIndex] * time)
+                + 0.34 * sin(2 * Double.pi * melody[noteIndex] * 2 * time)
+                + 0.12 * sin(2 * Double.pi * melody[noteIndex] * 3 * time)
+            let bassTone = sin(2 * Double.pi * bassNote * time)
+                + 0.22 * sin(2 * Double.pi * bassNote * 2 * time)
+            let snarePhase = time.truncatingRemainder(dividingBy: beat)
+            let snareEnvelope = max(0, 1 - snarePhase / 0.12)
+            let snare = ((index * 1_103 % 97) < 47 ? 1.0 : -1.0) * snareEnvelope * (eighth % 2 == 1 ? 0.22 : 0.0)
+            let kickEnvelope = max(0, 1 - noteTime / 0.16)
+            let kick = sin(2 * Double.pi * (92 - 38 * noteTime / 0.16) * time) * kickEnvelope * (eighth % 4 == 0 ? 0.30 : 0.0)
+            let value = max(-1, min(1, melodyTone * melodyEnvelope * 0.24 + bassTone * bassEnvelope * 0.30 + snare + kick))
+            samples.append(Int16(value * Double(Int16.max)))
+        }
+        return wavData(samples: samples, rate: rate)
     }
 
     private func makeSound(notes: [(Double, Double)], volume: Double) -> NSSound? {
