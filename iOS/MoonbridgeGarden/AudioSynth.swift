@@ -1,4 +1,4 @@
-import AppKit
+import AVFoundation
 import Foundation
 
 enum SoundEffect: CaseIterable { case shoot, sunshine, explosion, win, loss, plant, error, fuse, wave, giantReady, giantStrike, iceCharge, iceLaunch, iceHit, icePeaShoot, icePeaHit, doctorArrival, flameArrival, flameReady, flameStrike, flamePeaHit, flameConvert, stakePlant, gatlingShoot, pepperFuse, pepperBlast, pepperHit, cornLoad, cornLaunch, cornImpact, thunderArrival, thunderCharge, thunderStrike, charmCharge, charmCast, charmEnd, allyStrike, danceBeat, tanukiGiggle }
@@ -6,14 +6,75 @@ enum SoundEffect: CaseIterable { case shoot, sunshine, explosion, win, loss, pla
 @MainActor
 final class AudioSynth {
     static let shared = AudioSynth()
-    private var sounds: [SoundEffect: NSSound] = [:]
-    private var backgroundMusic: NSSound?
+    private var sounds: [SoundEffect: AVAudioPlayer] = [:]
+    private var backgroundMusic: AVAudioPlayer?
+    private var musicEnabled = true
+    private var active = false
+    private var foregroundRequested = false
+    private(set) var lastError: String?
+
+    var isMusicPlaying: Bool { backgroundMusic?.isPlaying == true }
+    var preparedEffectCount: Int { sounds.count }
+    func isEffectPlaying(_ effect: SoundEffect) -> Bool { sounds[effect]?.isPlaying == true }
+
+    var diagnosticSummary: String {
+        let session = AVAudioSession.sharedInstance()
+        let route = session.currentRoute.outputs.map(\.portName).joined(separator: ", ")
+        let volume = Int((session.outputVolume * 100).rounded())
+        if let lastError { return "Audio unavailable: \(lastError)" }
+        return "\(route.isEmpty ? "No audio output" : route) • Volume \(volume)% • \(active ? "Audio ready" : "Audio paused")"
+    }
+
+    /// Game Sound On bypasses Silent Mode; foreground lifecycle still stops playback.
+    func setActive(_ value: Bool) {
+        foregroundRequested = value
+        if value {
+            do {
+                try configureSession()
+                try AVAudioSession.sharedInstance().setActive(true)
+                active = true
+                lastError = nil
+                if musicEnabled { startMusic() }
+                NSLog("Moonbridge audio: %@; musicPlaying=%@", diagnosticSummary, String(isMusicPlaying))
+            } catch {
+                active = false
+                recordError(error.localizedDescription)
+            }
+        } else {
+            active = false
+            backgroundMusic?.pause()
+            for sound in sounds.values { sound.stop() }
+            do {
+                try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            } catch {
+                NSLog("Moonbridge audio deactivation: %@", error.localizedDescription)
+            }
+        }
+    }
 
     private init() {
-        backgroundMusic = NSSound(data: makeMarch())
-        backgroundMusic?.loops = true
+        do { try configureSession() } catch { recordError(error.localizedDescription) }
+        loadPlayers()
+    }
+
+    private func configureSession() throws {
+        try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.mixWithOthers])
+    }
+
+    func recoverAfterMediaServicesReset() {
+        let shouldActivate = foregroundRequested
+        active = false
+        sounds.removeAll()
+        backgroundMusic = nil
+        do { try configureSession() } catch { recordError(error.localizedDescription) }
+        loadPlayers()
+        setActive(shouldActivate)
+    }
+
+    private func loadPlayers() {
+        backgroundMusic = makePlayer(data: makeMarch())
+        backgroundMusic?.numberOfLoops = -1
         backgroundMusic?.volume = 0.12
-        backgroundMusic?.play()
 
         sounds[.shoot] = makeSound(notes: [(520, 0.05), (300, 0.04)], volume: 0.2)
         sounds[.sunshine] = makeSound(notes: [(660, 0.08), (880, 0.12)], volume: 0.18)
@@ -57,18 +118,50 @@ final class AudioSynth {
     }
 
     func play(_ effect: SoundEffect) {
-        sounds[effect]?.stop()
-        sounds[effect]?.play()
+        guard musicEnabled, foregroundRequested else { return }
+        if !active { setActive(true) }
+        guard active, let player = sounds[effect] else { return }
+        player.currentTime = 0
+        if !player.play() { recordError("The sound effect could not start. Try Test Sound again.") }
     }
 
     func setBackgroundMusicEnabled(_ enabled: Bool) {
-        if enabled {
-            if backgroundMusic?.isPlaying != true {
-                backgroundMusic?.play()
-            }
+        musicEnabled = enabled
+        if enabled && foregroundRequested {
+            setActive(true)
         } else {
             backgroundMusic?.stop()
+            for sound in sounds.values { sound.stop() }
         }
+    }
+
+    private func startMusic() {
+        guard let backgroundMusic else {
+            recordError("The soundtrack could not be loaded.")
+            return
+        }
+        if !backgroundMusic.isPlaying, !backgroundMusic.play() {
+            recordError("The soundtrack could not start. Try Test Sound again.")
+        }
+    }
+
+    private func makePlayer(data: Data) -> AVAudioPlayer? {
+        do {
+            let player = try AVAudioPlayer(data: data)
+            guard player.prepareToPlay() else {
+                recordError("An audio player could not be prepared.")
+                return nil
+            }
+            return player
+        } catch {
+            recordError(error.localizedDescription)
+            return nil
+        }
+    }
+
+    private func recordError(_ message: String) {
+        lastError = message
+        NSLog("Moonbridge audio error: %@", message)
     }
 
     private func makeMarch() -> Data {
@@ -109,7 +202,7 @@ final class AudioSynth {
         return wavData(samples: samples, rate: rate)
     }
 
-    private func makeSound(notes: [(Double, Double)], volume: Double) -> NSSound? {
+    private func makeSound(notes: [(Double, Double)], volume: Double) -> AVAudioPlayer? {
         let rate = 22_050
         var samples: [Int16] = []
         for (frequency, duration) in notes {
@@ -121,10 +214,10 @@ final class AudioSynth {
                 samples.append(Int16(value * envelope * volume * Double(Int16.max)))
             }
         }
-        return NSSound(data: wavData(samples: samples, rate: rate))
+        return makePlayer(data: wavData(samples: samples, rate: rate))
     }
 
-    private func makeNoise(duration: Double, volume: Double) -> NSSound? {
+    private func makeNoise(duration: Double, volume: Double) -> AVAudioPlayer? {
         let rate = 22_050
         let count = Int(Double(rate) * duration)
         var seed: UInt64 = 0x5A17B00B
@@ -135,7 +228,7 @@ final class AudioSynth {
             let rumble = sin(2 * Double.pi * (70 - 35 * t) * Double(i) / Double(rate))
             return Int16(max(-1, min(1, noise * 0.65 + rumble * 0.35)) * pow(1 - t, 2) * volume * Double(Int16.max))
         }
-        return NSSound(data: wavData(samples: samples, rate: rate))
+        return makePlayer(data: wavData(samples: samples, rate: rate))
     }
 
     private func wavData(samples: [Int16], rate: Int) -> Data {

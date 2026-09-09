@@ -20,6 +20,27 @@ struct ContentView: View {
                                 .padding(.horizontal, 12).padding(.vertical, 5)
                                 .background(.white.opacity(0.72), in: Capsule())
                         }
+                        if game.selectedPlant == .icePeaShooter {
+                            Text("ICE PEA: blue shots damage and slow every enemy, including bosses.")
+                                .font(.caption.weight(.black))
+                                .foregroundStyle(.blue)
+                                .padding(.horizontal, 12).padding(.vertical, 5)
+                                .background(.white.opacity(0.72), in: Capsule())
+                        }
+                        if game.selectedPlant == .flameStake {
+                            Text("FLAME STAKE: peas passing through gain fire; Ice Peas become steam-flame shots.")
+                                .font(.caption.weight(.black))
+                                .foregroundStyle(.orange)
+                                .padding(.horizontal, 12).padding(.vertical, 5)
+                                .background(.white.opacity(0.72), in: Capsule())
+                        }
+                        if game.selectedPlant == .gatlingPeaShooter {
+                            Text("GATLING: five rapid peas per burst; high cost, 8-second cooldown.")
+                                .font(.caption.weight(.black))
+                                .foregroundStyle(.green)
+                                .padding(.horizontal, 12).padding(.vertical, 5)
+                                .background(.white.opacity(0.72), in: Capsule())
+                        }
                         GameBoard(game: game)
                             .aspectRatio(9.0 / 5.0, contentMode: .fit)
                             .background(.black.opacity(0.1))
@@ -67,6 +88,8 @@ struct ContentView: View {
                 Button(game.isPaused ? "Resume" : "Pause") { game.togglePause() }
                     .buttonStyle(.borderedProminent)
                     .tint(.brown)
+                    .keyboardShortcut("p", modifiers: [])
+                    .help("Pause or resume the game (P)")
             }
         }
     }
@@ -77,19 +100,26 @@ struct ContentView: View {
                 .font(.title2.bold())
                 .foregroundStyle(.orange)
                 .padding(.vertical, 8)
-            ForEach(PlantKind.allCases) { kind in
-                Button { game.selectPlant(kind) } label: {
-                    PlantCard(kind: kind, selected: game.selectedPlant == kind,
-                              affordable: game.sunshine >= kind.cost,
-                              cooldown: kind == .cherryBomb ? game.cherryCooldown : kind == .redHotPepper ? game.pepperCooldown : kind == .cornCannon ? game.cornCooldown : kind == .charmMushroom ? game.charmCooldown : 0,
-                              cooldownDuration: kind == .redHotPepper ? GameModel.pepperCooldownDuration : kind == .cornCannon ? GameModel.cornCannonCooldownDuration : kind == .charmMushroom ? GameModel.charmMushroomCooldownDuration : GameModel.cherryCooldownDuration,
-                              animationTime: game.elapsed)
+            ScrollView(.vertical) {
+                LazyVStack(spacing: 10) {
+                    ForEach(PlantKind.allCases) { kind in
+                        Button { game.selectPlant(kind) } label: {
+                            PlantCard(kind: kind, selected: game.selectedPlant == kind,
+                                      affordable: game.sunshine >= kind.cost,
+                                      cooldown: kind == .cherryBomb ? game.cherryCooldown : kind == .redHotPepper ? game.pepperCooldown : kind == .cornCannon ? game.cornCooldown : kind == .charmMushroom ? game.charmCooldown : kind == .icePeaShooter ? game.icePeaCooldown : kind == .gatlingPeaShooter ? game.gatlingCooldown : 0,
+                                      cooldownDuration: cooldownDuration(for: kind),
+                                      animationTime: game.elapsed)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(game.phase != .playing)
+                    }
                 }
-                .buttonStyle(.plain)
-                .disabled(game.phase != .playing)
+                .padding(.vertical, 2)
             }
+            .scrollIndicators(.visible)
+            .frame(minHeight: 500, maxHeight: .infinity)
             Spacer(minLength: 0)
-            Text("GARDEN NOTE\nStart with 1,000 sunshine.\nCharm samurai, never bosses.")
+            Text("GARDEN NOTE\n\(game.selectedDifficulty.rawValue): \(game.selectedDifficulty.startingSunshine) sun.\nHazards shift each wave.")
                 .font(.caption.bold())
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.white.opacity(0.92))
@@ -98,8 +128,23 @@ struct ContentView: View {
         }
         .padding(10)
         .frame(width: 150)
+        .frame(minHeight: 620, maxHeight: .infinity)
         .background(LinearGradient(colors:[Color(red:0.48,green:0.07,blue:0.10),Color(red:0.24,green:0.07,blue:0.10)],startPoint:.top,endPoint:.bottom), in: RoundedRectangle(cornerRadius: 16))
         .overlay(RoundedRectangle(cornerRadius: 16).stroke(.yellow.opacity(0.55), lineWidth: 2))
+    }
+
+    private func cooldownDuration(for kind: PlantKind) -> Double {
+        let baseDuration: Double = switch kind {
+        case .redHotPepper: GameModel.pepperCooldownDuration
+        case .cornCannon: GameModel.cornCannonCooldownDuration
+        case .charmMushroom: GameModel.charmMushroomCooldownDuration
+        case .icePeaShooter: GameModel.icePeaCooldownDuration
+        case .gatlingPeaShooter: GameModel.gatlingCooldownDuration
+        default: GameModel.cherryCooldownDuration
+        }
+        let scalesWithDifficulty = kind == .cherryBomb || kind == .redHotPepper ||
+            kind == .cornCannon || kind == .charmMushroom
+        return scalesWithDifficulty ? baseDuration * game.selectedDifficulty.cooldownMultiplier : baseDuration
     }
 
     private var statusBar: some View {
@@ -109,6 +154,16 @@ struct ContentView: View {
                 .foregroundStyle(.white)
             ProgressView(value: game.waveProgress)
                 .tint(.yellow)
+            Text(game.selectedDifficulty.rawValue.uppercased())
+                .font(.caption.weight(.black))
+                .foregroundStyle(.yellow)
+            if let hazard = game.terrainHazard {
+                Text("\(hazard.kind.title) \(Int(ceil(hazard.remaining)))s")
+                    .font(.caption.weight(.black))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(hazard.kind == .frost ? .cyan : hazard.kind == .shadow ? .purple : .teal, in: Capsule())
+            }
             Text("\(game.zombies.count) ON LAWN")
                 .font(.subheadline.bold().monospacedDigit())
                 .foregroundStyle(.white.opacity(0.9))
@@ -126,6 +181,13 @@ struct ContentView: View {
                     .padding(.horizontal, 8).padding(.vertical, 3)
                     .background(.blue, in: Capsule())
             }
+            if game.zombies.contains(where: { $0.kind == .flameGiant }) {
+                Text("FLAME GIANT")
+                    .font(.caption.weight(.black))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(.orange, in: Capsule())
+            }
             if game.zombies.contains(where: { $0.kind == .thunderShogun }) {
                 Text("FINAL BOSS")
                     .font(.caption.weight(.black))
@@ -139,6 +201,13 @@ struct ContentView: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 8).padding(.vertical, 3)
                     .background(.orange, in: Capsule())
+            }
+            if let tanuki = game.tanukiEvent {
+                Text("TANUKI TRICK \(Int(ceil(tanuki.remaining)))s")
+                    .font(.caption.weight(.black))
+                    .foregroundStyle(.black)
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(.yellow, in: Capsule())
             }
         }
         .padding(.horizontal, 16)
@@ -169,10 +238,55 @@ struct ContentView: View {
                         .foregroundStyle(game.phase == .won ? .yellow : game.phase == .lost ? .green : .white)
                         .shadow(color: game.phase == .lost ? .red.opacity(0.5) : .black, radius: game.phase == .lost ? 9 : 2, y: 3)
                         .scaleEffect(pulse)
-                    Text(game.phase == .ready ? "Defend the moonbridge garden through three waves. The final wave brings three armored bosses." : game.phase == .won ? "The garden is peaceful again. All three armored bosses have fallen." : "A samurai invader crossed the moonbridge gate.")
+                    Text(game.phase == .ready ? "Defend the moonbridge garden through three waves. The final wave brings four mighty bosses." : game.phase == .won ? "The garden is peaceful again. All four mighty bosses have fallen." : "A samurai invader crossed the moonbridge gate.")
                         .font(.title3.weight(.semibold))
                         .foregroundStyle(.white)
                         .multilineTextAlignment(.center)
+                    if game.phase == .ready {
+                        VStack(spacing: 10) {
+                            Text("CHOOSE YOUR PATH")
+                                .font(.caption.weight(.black))
+                                .tracking(2)
+                                .foregroundStyle(.yellow)
+                            Text("Garden Difficulty")
+                                .font(.title2.weight(.black))
+                                .foregroundStyle(.white)
+                            Text("Starting sunshine is limited; hazards and enemy pressure scale by path.")
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(.white.opacity(0.75))
+                            ForEach(Difficulty.allCases) { difficulty in
+                                Button {
+                                    game.selectedDifficulty = difficulty
+                                } label: {
+                                    HStack(spacing: 12) {
+                                        Image(systemName: difficulty == .hard ? "flame.fill" : difficulty == .normal ? "leaf.fill" : "sparkles")
+                                            .font(.title3)
+                                            .frame(width: 28)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(difficulty.rawValue)
+                                                .font(.headline.weight(.bold))
+                                            Text(difficulty.subtitle)
+                                                .font(.caption)
+                                                .foregroundStyle(.white.opacity(0.78))
+                                        }
+                                        Spacer()
+                                        if game.selectedDifficulty == difficulty {
+                                            Image(systemName: "checkmark.circle.fill")
+                                                .foregroundStyle(.yellow)
+                                        }
+                                    }
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 11)
+                                    .frame(maxWidth: 430, alignment: .leading)
+                                    .background(game.selectedDifficulty == difficulty ? Color.red.opacity(0.72) : Color.black.opacity(0.22), in: RoundedRectangle(cornerRadius: 14))
+                                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(game.selectedDifficulty == difficulty ? .yellow.opacity(0.9) : .white.opacity(0.18), lineWidth: game.selectedDifficulty == difficulty ? 2 : 1))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .frame(maxWidth: 430)
+                    }
                     Button(game.phase == .ready ? "Start Level" : "Play Again") { game.start() }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.large)
@@ -232,33 +346,39 @@ private struct PlantCard: View {
         case .redHotPepper: Color(red: 0.84, green: 0.12, blue: 0.08)
         case .cornCannon: Color(red: 0.83, green: 0.60, blue: 0.08)
         case .charmMushroom: Color(red: 0.55, green: 0.20, blue: 0.68)
+        case .icePeaShooter: Color(red: 0.18, green: 0.62, blue: 0.92)
+        case .flameStake: Color(red: 0.84, green: 0.28, blue: 0.08)
+        case .gatlingPeaShooter: Color(red: 0.18, green: 0.48, blue: 0.20)
         }
     }
 }
 
 private struct GameBoard: View {
     @ObservedObject var game: GameModel
+    @State private var hoveredCell: GridCell?
 
     var body: some View {
         GeometryReader { proxy in
             Canvas { context, size in
-                LawnRenderer.draw(context: &context, size: size, game: game)
+                LawnRenderer.draw(context: &context, size: size, game: game, hoveredCell: hoveredCell)
             }
             .contentShape(Rectangle())
+            .onContinuousHover { phase in
+                switch phase {
+                case .active(let location): hoveredCell = GardenProjection(size: proxy.size).cell(at: location)
+                case .ended: hoveredCell = nil
+                }
+            }
             .gesture(SpatialTapGesture().onEnded { value in
-                game.plant(at: cell(at: value.location, size: proxy.size))
+                if let cell = GardenProjection(size: proxy.size).cell(at: value.location) {
+                    game.plant(at: cell)
+                }
             })
             .offset(x: sin(game.elapsed * 75) * game.screenShake * 9,
                     y: cos(game.elapsed * 61) * game.screenShake * 5)
             .accessibilityLabel("Five row lawn game board")
-            .accessibilityHint("Click an empty square to place the selected plant")
+            .accessibilityHint("Click a planting ring on a grass terrace. Water and scenery are not planting areas.")
         }
     }
 
-    private func cell(at point: CGPoint, size: CGSize) -> GridCell {
-        let width = max(1, size.width)
-        let height = max(1, size.height)
-        return GridCell(row: min(4, max(0, Int(point.y / height * 5))),
-                        column: min(8, max(0, Int(point.x / width * 9))))
-    }
 }

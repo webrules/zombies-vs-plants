@@ -1,0 +1,7 @@
+DerivedData/
+DeviceDerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcresult
+Verification/
+.DS_Store
