@@ -107,7 +107,7 @@ struct ContentView: View {
                             PlantCard(kind: kind, selected: game.selectedPlant == kind,
                                       affordable: game.sunshine >= kind.cost,
                                       cooldown: kind == .cherryBomb ? game.cherryCooldown : kind == .redHotPepper ? game.pepperCooldown : kind == .cornCannon ? game.cornCooldown : kind == .charmMushroom ? game.charmCooldown : kind == .icePeaShooter ? game.icePeaCooldown : kind == .gatlingPeaShooter ? game.gatlingCooldown : 0,
-                                      cooldownDuration: kind == .redHotPepper ? GameModel.pepperCooldownDuration : kind == .cornCannon ? GameModel.cornCannonCooldownDuration : kind == .charmMushroom ? GameModel.charmMushroomCooldownDuration : kind == .icePeaShooter ? GameModel.icePeaCooldownDuration : kind == .gatlingPeaShooter ? GameModel.gatlingCooldownDuration : GameModel.cherryCooldownDuration,
+                                      cooldownDuration: cooldownDuration(for: kind),
                                       animationTime: game.elapsed)
                         }
                         .buttonStyle(.plain)
@@ -119,7 +119,7 @@ struct ContentView: View {
             .scrollIndicators(.visible)
             .frame(minHeight: 500, maxHeight: .infinity)
             Spacer(minLength: 0)
-            Text("GARDEN NOTE\nDifficulty sets starting sunshine.\nCharm all but Thunder.")
+            Text("GARDEN NOTE\n\(game.selectedDifficulty.rawValue): \(game.selectedDifficulty.startingSunshine) sun.\nHazards shift each wave.")
                 .font(.caption.bold())
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.white.opacity(0.92))
@@ -133,6 +133,20 @@ struct ContentView: View {
         .overlay(RoundedRectangle(cornerRadius: 16).stroke(.yellow.opacity(0.55), lineWidth: 2))
     }
 
+    private func cooldownDuration(for kind: PlantKind) -> Double {
+        let baseDuration: Double = switch kind {
+        case .redHotPepper: GameModel.pepperCooldownDuration
+        case .cornCannon: GameModel.cornCannonCooldownDuration
+        case .charmMushroom: GameModel.charmMushroomCooldownDuration
+        case .icePeaShooter: GameModel.icePeaCooldownDuration
+        case .gatlingPeaShooter: GameModel.gatlingCooldownDuration
+        default: GameModel.cherryCooldownDuration
+        }
+        let scalesWithDifficulty = kind == .cherryBomb || kind == .redHotPepper ||
+            kind == .cornCannon || kind == .charmMushroom
+        return scalesWithDifficulty ? baseDuration * game.selectedDifficulty.cooldownMultiplier : baseDuration
+    }
+
     private var statusBar: some View {
         HStack(spacing: 12) {
             Text("WAVE \(game.wave) / 3")
@@ -140,6 +154,16 @@ struct ContentView: View {
                 .foregroundStyle(.white)
             ProgressView(value: game.waveProgress)
                 .tint(.yellow)
+            Text(game.selectedDifficulty.rawValue.uppercased())
+                .font(.caption.weight(.black))
+                .foregroundStyle(.yellow)
+            if let hazard = game.terrainHazard {
+                Text("\(hazard.kind.title) \(Int(ceil(hazard.remaining)))s")
+                    .font(.caption.weight(.black))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(hazard.kind == .frost ? .cyan : hazard.kind == .shadow ? .purple : .teal, in: Capsule())
+            }
             Text("\(game.zombies.count) ON LAWN")
                 .font(.subheadline.bold().monospacedDigit())
                 .foregroundStyle(.white.opacity(0.9))
@@ -227,7 +251,7 @@ struct ContentView: View {
                             Text("Garden Difficulty")
                                 .font(.title2.weight(.black))
                                 .foregroundStyle(.white)
-                            Text("Every path begins with 3,000 sunshine")
+                            Text("Starting sunshine is limited; hazards and enemy pressure scale by path.")
                                 .font(.subheadline.weight(.medium))
                                 .foregroundStyle(.white.opacity(0.75))
                             ForEach(Difficulty.allCases) { difficulty in
@@ -331,27 +355,30 @@ private struct PlantCard: View {
 
 private struct GameBoard: View {
     @ObservedObject var game: GameModel
+    @State private var hoveredCell: GridCell?
 
     var body: some View {
         GeometryReader { proxy in
             Canvas { context, size in
-                LawnRenderer.draw(context: &context, size: size, game: game)
+                LawnRenderer.draw(context: &context, size: size, game: game, hoveredCell: hoveredCell)
             }
             .contentShape(Rectangle())
+            .onContinuousHover { phase in
+                switch phase {
+                case .active(let location): hoveredCell = GardenProjection(size: proxy.size).cell(at: location)
+                case .ended: hoveredCell = nil
+                }
+            }
             .gesture(SpatialTapGesture().onEnded { value in
-                game.plant(at: cell(at: value.location, size: proxy.size))
+                if let cell = GardenProjection(size: proxy.size).cell(at: value.location) {
+                    game.plant(at: cell)
+                }
             })
             .offset(x: sin(game.elapsed * 75) * game.screenShake * 9,
                     y: cos(game.elapsed * 61) * game.screenShake * 5)
             .accessibilityLabel("Five row lawn game board")
-            .accessibilityHint("Click an empty square to place the selected plant")
+            .accessibilityHint("Click a planting ring on a grass terrace. Water and scenery are not planting areas.")
         }
     }
 
-    private func cell(at point: CGPoint, size: CGSize) -> GridCell {
-        let width = max(1, size.width)
-        let height = max(1, size.height)
-        return GridCell(row: min(4, max(0, Int(point.y / height * 5))),
-                        column: min(8, max(0, Int(point.x / width * 9))))
-    }
 }

@@ -1,5 +1,5 @@
 import XCTest
-@testable import ZombiesVsPlants
+@testable import MoonbridgeGarden
 
 @MainActor
 final class GameModelTests: XCTestCase {

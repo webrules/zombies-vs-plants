@@ -311,7 +311,8 @@ final class GameModel: ObservableObject {
         }
     }
 
-    private var timer: Timer?
+    // Publishing timer changes refreshes Pause/Resume even when the last tick stops.
+    @Published private var timer: Timer?
     private var lastTick = Date()
     private var nextSpawn = 0
     private var dancerSpawnCountsByWave = [Int](repeating: 0, count: 4)
@@ -604,6 +605,7 @@ final class GameModel: ObservableObject {
     }
 
     private func clockTick() {
+        guard phase == .playing, timer != nil else { return }
         let now = Date()
         let dt = min(now.timeIntervalSince(lastTick), 0.1)
         lastTick = now
